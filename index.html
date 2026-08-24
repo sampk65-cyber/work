@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "正式版・3.0（登出／權限＋產能功能3整合版）";
+const APP_VERSION = "正式版・3.0（功能表7表格3完整版）";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -439,7 +439,7 @@ const MAP_LOGO_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBA
 const STUB_MODULES = [
   { icon: Users, label: "1. 人員與帳號", key: "personnel" },
   { icon: ShieldCheck, label: "2. 權限管理", key: "permissions" },
-  { icon: TrendingUp, label: "3. 產能資料輸入與分析", key: "yield" },
+  { icon: TrendingUp, label: "3. 產能資料輸入與分析" },
   { icon: ClipboardList, label: "4. 分區工項提示內容", key: "workfolders" },
   { icon: CalendarDays, label: "5. 工項行事曆", key: "calendar" },
   { icon: Camera, label: "6. 照片影像資料庫" },
@@ -3747,7 +3747,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
 const REPORT_SLOTS = [
   { no: "一", label: "耗材匯總表", key: "materials", ready: true },
   { no: "二", label: "年度計畫表", key: "annual", ready: true },
-  { no: "三", label: "尚未設計", key: null, ready: false },
+  { no: "三", label: "分區耗材統計", key: "zoneMaterials", ready: true },
   { no: "四", label: "尚未設計", key: null, ready: false },
   { no: "五", label: "尚未設計", key: null, ready: false },
   { no: "六", label: "尚未設計", key: null, ready: false },
@@ -3769,6 +3769,13 @@ function ReportsHub({ onBack }) {
   }
   if (openKey === "annual") {
     return React.createElement(AnnualPlan, { onClose: () => setOpenKey(null),} );
+  }
+  if (openKey === "zoneMaterials") {
+    return React.createElement(ZoneMaterialsReport, {
+      year: yearSel,
+      month: monthSel,
+      onBack: () => setOpenKey(null),
+    } );
   }
 
   return (
@@ -4147,6 +4154,325 @@ function CalendarCellEditor({ cell, initial, onSave, onClose }) {
 }
 
 // 表二：年度計畫 — 掃描全部行事曆資料，彙整標記為「產季」的月份，依分區 x 年份呈現
+
+function ZoneMaterialsReport({ year, month, onBack }) {
+  const ym = `${year}-${String(month).padStart(2, "0")}`;
+  const [zone, setZone] = useState(null);
+  const [dayMap, setDayMap] = useState({}); // { [dayNumber]: [{rowKey, qty, itemName, personName, at}] }
+  const [totals, setTotals] = useState(null); // { [rowKey]: number }
+  const [updating, setUpdating] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState("");
+  const [activeDay, setActiveDay] = useState(null); // 點選某日 → 顯示全部
+  const [printVersion, setPrintVersion] = useState(0);
+
+  const daysCount = daysInMonth(year, month);
+  const firstDow = new Date(year, month - 1, 1).getDay(); // 0=日
+
+  const loadZone = async (z) => {
+    setUpdating(true);
+    const nextTotals = {};
+    REPORT_ROWS.forEach((r) => { nextTotals[r.key] = 0; });
+    const byDay = {};
+    const pushDay = (day, entry) => {
+      if (day < 1 || day > daysCount) return;
+      if (!byDay[day]) byDay[day] = [];
+      const dup = byDay[day].some((e) => e.rowKey === entry.rowKey && e.qty === entry.qty && e.at === entry.at && e.personName === entry.personName);
+      if (dup) return;
+      byDay[day].push(entry);
+    };
+    const dayFromStamp = (stamp) => {
+      if (!stamp) return null;
+      const s = String(stamp);
+      let y, m, d;
+      if (s.includes("/")) {
+        const p = s.split(" ")[0].split("/");
+        if (p.length < 3) return null;
+        y = Number(p[0]); m = Number(p[1]); d = Number(p[2]);
+      } else if (s.includes("-")) {
+        const p = s.split(" ")[0].split("T")[0].split("-");
+        if (p.length < 3) return null;
+        y = Number(p[0]); m = Number(p[1]); d = Number(p[2]);
+      } else return null;
+      if (y !== year || m !== month) return null;
+      return d;
+    };
+    try {
+      const res = await window.storage.get(`zonework:${z.id}:${ym}`, true);
+      if (res) {
+        const zdata = JSON.parse(res.value);
+
+        // 表三原則：只有「回報確認」才算數，且回報必有時間 → 月曆與彙總都只認 confirmHistory
+        (zdata.confirmHistory || []).forEach((h) => {
+          if (!h || !h.rowKey) return;
+          const qty = parseFloat(h.qty);
+          if (isNaN(qty) || qty <= 0) return;
+          const d = dayFromStamp(h.at);
+          // 有回報時間才入格；無時間的歷史不入（正常流程回報都會帶 at）
+          if (d == null) return;
+          pushDay(d, {
+            rowKey: h.rowKey,
+            qty,
+            itemName: h.itemName || h.rowKey,
+            personName: h.personName || h.personId || "",
+            at: h.at,
+            source: "history",
+          });
+          if (nextTotals[h.rowKey] !== undefined) {
+            nextTotals[h.rowKey] = (nextTotals[h.rowKey] || 0) + qty;
+          }
+        });
+      }
+      setTotals(nextTotals);
+      setDayMap(byDay);
+      setLastUpdated(nowStamp());
+    } catch (e) {
+      console.error(e);
+      setTotals(nextTotals);
+      setDayMap({});
+    }
+    setUpdating(false);
+  };
+
+  const selectZone = (z) => {
+    setZone(z);
+    setTotals(null);
+    setDayMap({});
+    setActiveDay(null);
+    loadZone(z);
+  };
+
+  const shortLabel = (rowKey) => {
+    if (!rowKey) return "?";
+    if (rowKey.length <= 2) return rowKey;
+    return rowKey.slice(0, 2);
+  };
+  const unitOf = (rowKey) => {
+    const r = REPORT_ROWS.find((x) => x.key === rowKey);
+    return r ? r.unit : "";
+  };
+
+  const backBtn = (onClick) => React.createElement('button', {
+    onClick,
+    className: "back-float no-print flex items-center justify-center gap-2 rounded-full shadow-xl",
+    style: {
+      position: "fixed", right: 16, bottom: 18, zIndex: 90,
+      background: "#C94F67", color: "white",
+      fontFamily: "Inter", fontWeight: 800, fontSize: 17,
+      minHeight: 54, padding: "0 20px",
+      border: "2px solid white",
+      boxShadow: "0 8px 22px rgba(80,20,40,.28)",
+      textAlign: "center",
+    },
+  }, React.createElement(ArrowLeft, { size: 22 }), "回上一頁");
+
+  // —— 選溫室 ——
+  if (!zone) {
+    return (
+      React.createElement('div', { className: "min-h-screen flex flex-col", style: { background: C.cream } },
+        React.createElement(NavBar, { backLabel: "回耗材與報表", onBack: onBack }),
+        React.createElement('div', { className: "px-4 py-3", style: { borderBottom: `1px solid ${C.line}` } },
+          React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 17, color: C.ink } }, "表三・分區耗材統計"),
+          React.createElement('div', { className: "text-xs mt-1", style: { color: C.inkSoft, fontFamily: "Inter" } },
+            ym, "　·　月曆檢視整月日期與 6/7/8 確認內容"
+          )
+        ),
+        React.createElement('div', { className: "p-4" },
+          React.createElement('div', { className: "text-sm mb-3", style: { fontFamily: "Inter", fontWeight: 700, color: C.ink } }, "選擇溫室"),
+          React.createElement('div', { className: "grid grid-cols-2 gap-3" },
+            ZONES.map((z) => React.createElement('button', {
+              key: z.id,
+              onClick: () => selectZone(z),
+              className: "rounded-xl p-4 flex flex-col gap-1 text-left",
+              style: { background: C.paper, border: `1px solid ${C.line}` },
+            },
+              React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 15, color: C.ink } }, z.name),
+              React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "月曆檢視耗材")
+            ))
+          )
+        ),
+        backBtn(onBack)
+      )
+    );
+  }
+
+  const activeEntries = activeDay != null ? (dayMap[activeDay] || []) : [];
+  const filledDays = Object.keys(dayMap).filter((k) => Number(k) > 0).length;
+
+  return (
+    React.createElement('div', { className: "min-h-screen flex flex-col", style: { background: C.cream } },
+      React.createElement(NavBar, {
+        backLabel: "選擇溫室",
+        onBack: () => { setZone(null); setTotals(null); setDayMap({}); setActiveDay(null); },
+      }),
+      React.createElement('div', { className: "px-4 py-3", style: { borderBottom: `1px solid ${C.line}` } },
+        React.createElement('div', { className: "flex items-start justify-between gap-2 flex-wrap" },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 17, color: C.ink } },
+              zone.name, "・耗材月曆"
+            ),
+            React.createElement('div', { className: "text-xs mt-0.5", style: { color: C.inkSoft, fontFamily: "Inter" } },
+              "表三・", year, "年", month, "月　工項 6/7/8　有紀錄 ", filledDays, " 天"
+            )
+          ),
+          React.createElement('div', { className: "flex items-center gap-2 flex-wrap" },
+            React.createElement('button', {
+              onClick: () => loadZone(zone),
+              disabled: updating,
+              className: "no-print px-3 py-1.5 rounded-lg text-xs flex items-center justify-center",
+              style: { background: C.tableColor, color: "white", fontFamily: "Inter", fontWeight: 700, textAlign: "center" },
+            }, updating ? "更新中…" : "🔄 更新"),
+            React.createElement(PrintShareBar, {
+              title: `表三・${zone.name}耗材月曆 ${ym}`,
+              summary: `藍帶無花果 表三・${zone.name} ${ym} 耗材月曆`,
+              onPrinted: () => setPrintVersion((v) => v + 1),
+            })
+          )
+        ),
+        lastUpdated && React.createElement('div', { className: "text-xs mt-1", style: { color: C.inkSoft, fontFamily: "Inter" } }, "上次更新：", lastUpdated)
+      ),
+
+      React.createElement('div', { className: "flex-1 overflow-auto px-3 py-3 print-area" },
+        // 年月列（與施肥消毒工作表類似）
+        React.createElement('div', { className: "flex items-center gap-2 mb-3 px-1" },
+          React.createElement('div', { className: "px-3 py-2 rounded-lg text-sm", style: { background: C.paper, border: `1px solid ${C.line}`, fontFamily: "Inter", fontWeight: 700, color: C.ink } },
+            year, "年"
+          ),
+          React.createElement('div', { className: "px-3 py-2 rounded-lg text-sm", style: { background: C.paper, border: `1px solid ${C.line}`, fontFamily: "Inter", fontWeight: 700, color: C.ink } },
+            month, "月"
+          ),
+          React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "點日期看當日全部內容")
+        ),
+
+        React.createElement('div', { className: "grid grid-cols-7 gap-1 mb-1" },
+          ["日", "一", "二", "三", "四", "五", "六"].map((d) => (
+            React.createElement('div', { key: d, className: "text-center text-xs", style: { color: C.inkSoft, fontFamily: "Inter", fontWeight: 700 } }, d)
+          ))
+        ),
+        React.createElement('div', { className: "grid grid-cols-7 gap-1 mb-4" },
+          Array.from({ length: firstDow }).map((_, i) => React.createElement('div', { key: "e" + i })),
+          Array.from({ length: daysCount }, (_, i) => i + 1).map((day) => {
+            const entries = dayMap[day] || [];
+            const has = entries.length > 0;
+            // 格子內最多顯示 3 筆縮寫，其餘以 +N
+            const maxShow = 3;
+            const shown = entries.slice(0, maxShow);
+            const more = entries.length - shown.length;
+            return React.createElement('button', {
+              key: day,
+              onClick: () => setActiveDay(day),
+              className: "flex flex-col items-center rounded-lg p-0.5",
+              style: {
+                minHeight: 64,
+                aspectRatio: "1",
+                background: has ? `${C.brandBlue}18` : C.paper,
+                border: `1px solid ${has ? C.brandBlue : C.line}`,
+              },
+            },
+              React.createElement('span', { style: { fontSize: 11, color: C.ink, fontFamily: "Inter", fontWeight: has ? 700 : 500 } }, day),
+              has && React.createElement('span', {
+                className: "flex flex-col items-center justify-center w-full",
+                style: { fontSize: 9, fontFamily: "Inter", fontWeight: 700, lineHeight: 1.15, gap: 1, marginTop: 2 },
+              },
+                shown.map((en, idx) => React.createElement('span', {
+                  key: idx,
+                  className: "truncate w-full text-center",
+                  style: { color: en.itemId === 6 || en.rowKey === "溝灌" || en.rowKey === "噴灌" ? C.brandBlue : (["米糠", "金旺"].includes(en.rowKey) ? C.leaf : C.wine) },
+                }, en.qty != null ? `${shortLabel(en.rowKey)}${en.qty}` : shortLabel(en.rowKey))),
+                more > 0 && React.createElement('span', { style: { color: C.inkSoft, fontSize: 8 } }, "+", more, " 全部")
+              )
+            );
+          })
+        ),
+
+        // 月彙總（表一同一套數字，方便對照）
+        totals && React.createElement('div', { className: "rounded-2xl p-3 mb-3", style: { background: C.paper, border: `1px solid ${C.line}` } },
+          React.createElement('div', { className: "text-xs mb-2", style: { color: C.inkSoft, fontFamily: "Inter", fontWeight: 700 } }, "本月彙總（依確認回報歷史加總，與月曆同一來源）"),
+          React.createElement('div', { className: "flex flex-wrap gap-1.5" },
+            REPORT_ROWS.filter((r) => (totals[r.key] || 0) > 0).map((r) => (
+              React.createElement('span', {
+                key: r.key,
+                className: "px-2 py-1 rounded-lg text-xs",
+                style: { background: `${C.tableColor}15`, color: C.tableColor, fontFamily: "Inter", fontWeight: 700 },
+              }, r.label, " ", totals[r.key], r.unit)
+            )),
+            REPORT_ROWS.every((r) => !(totals[r.key] > 0)) && React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "本月尚無彙總數量")
+          )
+        ),
+
+        React.createElement('div', { className: "text-xs text-center px-2", style: { color: C.inkSoft, fontFamily: "Inter" } },
+          "僅統計「回報確認」紀錄：有回報時間才入格與加總。格子為縮寫，點日期可看全部。"
+        )
+      ),
+
+      // 當日全部內容（底部 sheet）
+      activeDay != null && React.createElement('div', {
+        className: "fixed inset-0 z-50 flex items-end",
+        style: { background: "rgba(43,33,25,0.5)" },
+        onClick: () => setActiveDay(null),
+      },
+        React.createElement('div', {
+          className: "w-full rounded-t-2xl p-5 flex flex-col",
+          style: { background: C.paper, maxHeight: "75vh" },
+          onClick: (e) => e.stopPropagation(),
+        },
+          React.createElement('div', { className: "flex items-center justify-between mb-3 flex-shrink-0" },
+            React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 16, color: C.ink } },
+              year, "/", String(month).padStart(2, "0"), "/", String(activeDay).padStart(2, "0"), "・全部內容"
+            ),
+            React.createElement('button', {
+              onClick: () => setActiveDay(null),
+              className: "flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-xs",
+              style: { background: "#C94F67", color: "white", fontFamily: "Inter", fontWeight: 700, textAlign: "center" },
+            }, React.createElement(ArrowLeft, { size: 14, color: "white" }), "回上一頁")
+          ),
+          React.createElement('div', { className: "overflow-y-auto flex-1 min-h-0 flex flex-col gap-2" },
+            activeEntries.length === 0 && React.createElement('div', { className: "text-center py-10 text-sm", style: { color: C.inkSoft, fontFamily: "Inter" } }, "此日無確認紀錄"),
+            activeEntries.map((en, i) => React.createElement('div', {
+              key: i,
+              className: "p-3 rounded-xl",
+              style: { background: C.cream, border: `1px solid ${C.line}` },
+            },
+              React.createElement('div', { className: "flex items-center justify-between gap-2" },
+                React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, color: C.ink } }, en.rowKey || en.itemName),
+                React.createElement('span', { style: { fontFamily: "IBM Plex Mono", fontWeight: 800, color: C.tableColor } },
+                  en.qty != null ? `${en.qty} ${unitOf(en.rowKey)}` : "—"
+                )
+              ),
+              React.createElement('div', { className: "text-xs mt-1", style: { color: C.inkSoft, fontFamily: "Inter" } },
+                en.itemName, en.personName ? `　·　${en.personName}` : "", "　·　", en.at
+              )
+            ))
+          )
+        )
+      ),
+
+      React.createElement(PrintLog, { refreshKey: printVersion }),
+      backBtn(() => { setZone(null); setTotals(null); setDayMap({}); setActiveDay(null); })
+    )
+  );
+}
+
+// 24節氣對照月份（依國曆固定月份，年年變動在1-2天內，農場排程用途足夠精確）
+const SOLAR_TERMS_BY_MONTH = {
+  1: "小寒／大寒", 2: "立春／雨水", 3: "驚蟄／春分", 4: "清明／穀雨",
+  5: "立夏／小滿", 6: "芒種／夏至", 7: "小暑／大暑", 8: "立秋／處暑",
+  9: "白露／秋分", 10: "寒露／霜降", 11: "立冬／小雪", 12: "大雪／冬至",
+};
+
+const CALENDAR_ROWS = [
+  { id: "p1", name: "一期" },
+  { id: "p2", name: "二期" },
+  { id: "zone3", name: "三期" },
+  { id: "south4", name: "四南" },
+  { id: "north4", name: "四北" },
+  { id: "zone5", name: "五期" },
+  { id: "prod", name: "生產區域" },
+];
+
+// 各分區格數 = 面積權重代理值，總和27區塊 x 上下半月 = 54階，用於生產區域熱力圖計算
+const ZONE_BLOCK_COUNTS = { p1: 2, p2: 3, zone3: 6, south4: 4, north4: 4, zone5: 8 };
+const TOTAL_HALF_UNITS = Object.values(ZONE_BLOCK_COUNTS).reduce((s, n) => s + n, 0) * 2; // 54
+
 function AnnualPlan({ onClose, refreshKey, onPrinted }) {
   const [rows, setRows] = useState(null); // null = 尚未彙總；{ [rowId]: { [year]: [{m,date,text}] } } = 已彙總結果
   const [updating, setUpdating] = useState(false);
@@ -5943,7 +6269,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
           onOpenFolders: () => setGlobalFolders(true),
           onOpenPersonnel: () => setGlobalPersonnel(true),
           onOpenPermissions: () => setGlobalPermissions(true),
-          onOpenYield: () => openYieldPortal(loggedInId, role),
           pendingPermCount: pendingPermCount,
           role: role,
           loggedInId: loggedInId,
@@ -5968,7 +6293,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
           onOpenFolders: () => setView("folders"),
           onOpenPersonnel: () => setView("personnel"),
           onOpenPermissions: () => setView("permissions"),
-          onOpenYield: () => openYieldPortal(loggedInId, role),
           pendingPermCount: pendingPermCount,}
         )
       )
