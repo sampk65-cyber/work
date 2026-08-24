@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "正式版・3.0（功能表7・表格3完整版）";
+const APP_VERSION = "3.7+";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -937,9 +937,88 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
   );
 }
 
+
+function BackIsland({ onBack }) {
+  const [pos, setPos] = useState(null); // null = 預設右下角；拖曳後為固定座標
+  const dragState = useRef({
+    dragging: false, moved: false,
+    startX: 0, startY: 0, originX: 0, originY: 0,
+  });
+
+  const onPointerDown = (e) => {
+    if (!onBack) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragState.current = {
+      dragging: true, moved: false,
+      startX: e.clientX, startY: e.clientY,
+      originX: rect.left, originY: rect.top,
+    };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+  };
+
+  const onPointerMove = (e) => {
+    const s = dragState.current;
+    if (!s.dragging) return;
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    if (Math.abs(dx) + Math.abs(dy) > 6) s.moved = true;
+    if (!s.moved) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const w = rect.width || 118;
+    const h = rect.height || 42;
+    const margin = 8;
+    const nx = Math.min(Math.max(margin, s.originX + dx), Math.max(margin, window.innerWidth - w - margin));
+    const ny = Math.min(Math.max(margin, s.originY + dy), Math.max(margin, window.innerHeight - h - margin));
+    setPos({ x: nx, y: ny });
+  };
+
+  const onPointerUp = (e) => {
+    const s = dragState.current;
+    s.dragging = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (!s.moved && onBack) onBack();
+  };
+
+  if (!onBack) return null;
+
+  const positionStyle = pos
+    ? { left: pos.x, top: pos.y }
+    : { right: 16, bottom: 18 };
+
+  return (
+    React.createElement('div', {
+      onPointerDown: onPointerDown,
+      onPointerMove: onPointerMove,
+      onPointerUp: onPointerUp,
+      className: "fixed flex items-center gap-2 rounded-full shadow-xl",
+      title: "可拖曳；點一下回上一頁",
+      style: {
+        zIndex: 9998,
+        ...positionStyle,
+        background: "#1F2937",
+        color: "#FFFFFF",
+        padding: "10px 15px",
+        fontFamily: "Inter",
+        fontWeight: 700,
+        fontSize: 13,
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "none",
+        cursor: "grab",
+        boxShadow: "0 8px 24px rgba(0,0,0,.24)",
+      },
+    }
+      , React.createElement(ArrowLeft, { size: 15, color: "#FFFFFF" })
+      , React.createElement('span', null, "回上一頁")
+    )
+  );
+}
+
 function NavBar({ backLabel, onBack, role, onCycleRole }) {
   return (
     React.createElement('div', { className: "flex items-center justify-between gap-2 px-4 py-3"     , style: { borderBottom: `1px solid ${C.line}`, background: C.paper },}
+      , React.createElement(BackIsland, { onBack: onBack })
       , React.createElement('button', {
         onClick: onBack,
         className: "flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm"      ,
