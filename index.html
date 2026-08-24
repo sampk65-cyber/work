@@ -938,7 +938,7 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
 }
 
 
-function BackIsland({ onBack, backLabel }) {
+function BackIsland({ onBack }) {
   const [pos, setPos] = useState(null); // null = 預設右下角；拖曳後為固定座標
   const dragState = useRef({
     dragging: false, moved: false,
@@ -982,10 +982,9 @@ function BackIsland({ onBack, backLabel }) {
 
   if (!onBack) return null;
 
-  const isHomeBack = String(backLabel || "").includes("首頁");
   const positionStyle = pos
     ? { left: pos.x, top: pos.y }
-    : (isHomeBack ? { left: 16, bottom: 18 } : { right: 16, bottom: 18 });
+    : { right: 16, bottom: 18 };
 
   return (
     React.createElement('div', {
@@ -997,7 +996,7 @@ function BackIsland({ onBack, backLabel }) {
       style: {
         zIndex: 9998,
         ...positionStyle,
-        background: isHomeBack ? "#1F2937" : "#E94B5F",
+        background: "#E94B5F",
         color: "#FFFFFF",
         padding: "10px 15px",
         fontFamily: "Inter",
@@ -1011,7 +1010,7 @@ function BackIsland({ onBack, backLabel }) {
       },
     }
       , React.createElement(ArrowLeft, { size: 15, color: "#FFFFFF" })
-      , React.createElement('span', null, isHomeBack ? "回首頁" : "回上一頁")
+      , React.createElement('span', null, "回上一頁")
     )
   );
 }
@@ -1019,7 +1018,7 @@ function BackIsland({ onBack, backLabel }) {
 function NavBar({ backLabel, onBack, role, onCycleRole }) {
   return (
     React.createElement('div', { className: "flex items-center justify-between gap-2 px-4 py-3"     , style: { borderBottom: `1px solid ${C.line}`, background: C.paper },}
-      , React.createElement(BackIsland, { onBack: onBack, backLabel: backLabel })
+      , React.createElement(BackIsland, { onBack: onBack })
       , React.createElement('button', {
         onClick: onBack,
         className: "flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm"      ,
@@ -1076,7 +1075,7 @@ function HomeIsland({ onHome }) {
 
   const positionStyle = pos
     ? { top: pos.y, left: pos.x, transform: "none" }
-    : { bottom: 16, right: 16, transform: "none" };
+    : { bottom: 16, left: 16, transform: "none" };
 
   return (
     React.createElement('div', {
