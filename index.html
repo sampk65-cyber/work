@@ -6099,6 +6099,13 @@ function LoginSplash({ onLogin }) {
   const [fadingOut, setFadingOut] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(null); // {role, personId}，驗證成功後再詢問是否維持登入
 
+  const completeLogin = (remember) => {
+    if (!pendingLogin) return;
+    const { role, personId } = pendingLogin;
+    setFadingOut(true);
+    setTimeout(() => onLogin(role, personId, remember), 480);
+  };
+
   const doLogin = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -6110,13 +6117,6 @@ function LoginSplash({ onLogin }) {
       // 帳密驗證已成功；先詢問是否在此裝置維持登入。
       setBusy(false);
       setPendingLogin({ role, personId });
-    };
-
-    const completeLogin = (remember) => {
-      if (!pendingLogin) return;
-      const { role, personId } = pendingLogin;
-      setFadingOut(true);
-      setTimeout(() => onLogin(role, personId, remember), 480);
     };
 
     // 先查資料庫本身是否有這筆帳號（含創始帳號本人自己改過密碼的情況），比對到就優先用
