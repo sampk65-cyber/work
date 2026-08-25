@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.8・留言板優化";
+const APP_VERSION = "V3.8・留言板A4月報";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -4100,6 +4100,8 @@ function NoticeBoardArchive({ year, month, onBack }) {
     (async () => {
       setLoading(true);
       try {
+        // 歷史留言直接讀 zonenotice:* 原始資料，不受首頁「48小時／最多3則」顯示規則影響。
+        // 因此已讀留言仍會永久保留在表四月報中，除非未來另行實作人工刪除。
         const listRes = await window.storage.list("zonenotice:");
         const keys = _optionalChain([listRes, 'optionalAccess', _nb1 => _nb1.keys]) || [];
         const results = await runWithLimit(keys, 6, async (k) => {
@@ -4111,47 +4113,131 @@ function NoticeBoardArchive({ year, month, onBack }) {
             return { key: k, ...n };
           } catch (_e) { return null; }
         });
-        const list = results.filter(Boolean).sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1));
+        const list = results.filter(Boolean).sort((a, b) => (a.postedAt > b.postedAt ? 1 : -1));
         if (alive) setRows(list);
-      } catch (_e) { if (alive) setRows([]); }
+      } catch (_e) {
+        if (alive) setRows([]);
+      }
       if (alive) setLoading(false);
     })();
     return () => { alive = false; };
   }, [year, month]);
 
-  const recipientLine = (n) => (n.recipientIds || []).map((id) => {
-    const name = _optionalChain([n, 'access', _nb2 => _nb2.recipientNames, 'optionalAccess', _nb3 => _nb3[id]]) || id;
-    const read = (n.readBy || []).includes(id);
-    const at = _optionalChain([n, 'access', _nb4 => _nb4.readAt, 'optionalAccess', _nb5 => _nb5[id]]);
-    return `${name}：${read ? (at || "已讀（舊資料未記錄時間）") : "未讀"}`;
-  }).join("／");
+  const recipientRows = (n) => {
+    const ids = n.recipientIds || [];
+    return ids.length ? ids.map((id) => {
+      const name = _optionalChain([n, 'access', _nb2 => _nb2.recipientNames, 'optionalAccess', _nb3 => _nb3[id]]) || id;
+      const read = (n.readBy || []).includes(id);
+      const at = _optionalChain([n, 'access', _nb4 => _nb4.readAt, 'optionalAccess', _nb5 => _nb5[id]]);
+      return {
+        recipient: name,
+        readAt: read ? (at || "已讀（舊資料未記錄日期）") : "未讀",
+      };
+    }) : [{ recipient: "—", readAt: "—" }];
+  };
+
+  const flatRows = rows.flatMap((n) =>
+    recipientRows(n).map((r, idx) => ({
+      key: `${n.key}:${idx}`,
+      postedAt: n.postedAt || "—",
+      sender: n.senderName || n.senderId || "—",
+      recipient: r.recipient,
+      readAt: r.readAt,
+    }))
+  );
+
+  const printReport = () => {
+    setTimeout(() => window.print(), 80);
+  };
 
   return (
     React.createElement('div', { className: "min-h-screen flex flex-col", style: { background: C.cream },}
       , React.createElement(NavBar, { backLabel: "回表格", onBack: onBack,} )
-      , React.createElement('div', { className: "px-4 py-3", style: { borderBottom: `1px solid ${C.line}` },}
-        , React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 18, color: C.ink },}, "表四・留言版內容")
-        , React.createElement('div', { className: "text-xs mt-1", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, `${year}-${String(month).padStart(2, "0")}`)
-      )
-      , React.createElement('div', { className: "p-4 flex flex-col gap-3" }
-        , loading && React.createElement('div', { className: "text-sm text-center py-8", style: { color: C.inkSoft },}, "載入中…")
-        , !loading && rows.length === 0 && React.createElement('div', { className: "rounded-xl p-5 text-center text-sm",
-            style: { background: C.paper, border: `1px solid ${C.line}`, color: C.inkSoft },}, "本月尚無留言紀錄")
-        , !loading && rows.map((n) => (
-          React.createElement('div', { key: n.key, className: "rounded-xl p-4",
-              style: { background: C.paper, border: `1px solid ${C.line}` },}
-            , React.createElement('div', { className: "text-xs mb-1", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, n.postedAt || "—")
-            , React.createElement('div', { className: "text-sm mb-2", style: { color: C.ink, fontFamily: "Inter", fontWeight: 700 },}, "發文人：", n.senderName || n.senderId || "—")
-            , React.createElement('div', { className: "text-sm mb-2", style: { color: C.ink, fontFamily: "Inter", lineHeight: 1.6 },}, n.text || "")
-            , React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter", lineHeight: 1.7 },}, "收文／已讀：", recipientLine(n))
-            , n.fullyReadAt && React.createElement('div', { className: "text-xs mt-1", style: { color: C.leaf, fontFamily: "Inter" },}, "全員已讀：", n.fullyReadAt)
+
+      , React.createElement('div', { className: "px-4 py-3 no-print",
+          style: { borderBottom: `1px solid ${C.line}`, background: C.paper },}
+        , React.createElement('div', { className: "flex items-center justify-between gap-2" }
+          , React.createElement('div', null
+            , React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 18, color: C.ink },}, "表四・留言板內容")
+            , React.createElement('div', { className: "text-xs mt-1", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" },},
+                year, "年 ", month, "月　／　直式 A4 月報")
           )
-        ))
+          , React.createElement('button', {
+              onClick: printReport,
+              className: "px-3 py-2 rounded-lg text-xs flex items-center gap-1.5",
+              style: { background: C.wine, color: "white", fontFamily: "Inter", fontWeight: 700 },}
+            , React.createElement(Printer, { size: 15, color: "white" })
+            , "列印／存PDF"
+          )
+        )
+      )
+
+      , React.createElement('div', { className: "p-4 overflow-auto" }
+        , React.createElement('div', {
+            className: "print-area mx-auto",
+            style: {
+              width: "100%",
+              maxWidth: 794,
+              minHeight: 1123,
+              background: "#FFFFFF",
+              color: "#222",
+              padding: "28px 30px 24px",
+              boxShadow: "0 2px 10px rgba(0,0,0,.08)",
+              fontFamily: "Inter",
+            },}
+
+          , React.createElement('div', { style: { textAlign: "center", marginBottom: 12 },}
+            , React.createElement('div', { style: { fontWeight: 800, fontSize: 20, letterSpacing: 1 },}, "留言板內容表")
+            , React.createElement('div', { style: { fontSize: 12, marginTop: 5 },}, year, "年 ", month, "月")
+          )
+
+          , loading ? (
+            React.createElement('div', { style: { textAlign: "center", padding: "30px 0", fontSize: 12 },}, "載入中…")
+          ) : (
+            React.createElement('table', {
+              style: {
+                width: "100%",
+                borderCollapse: "collapse",
+                tableLayout: "fixed",
+                fontSize: 10,
+                lineHeight: 1.35,
+              },}
+              , React.createElement('thead', null
+                , React.createElement('tr', null
+                  , React.createElement('th', { style: { width: "28%", border: "1px solid #777", padding: "6px 4px", background: "#F2F2F2" },}, "發文日期")
+                  , React.createElement('th', { style: { width: "20%", border: "1px solid #777", padding: "6px 4px", background: "#F2F2F2" },}, "發文人")
+                  , React.createElement('th', { style: { width: "24%", border: "1px solid #777", padding: "6px 4px", background: "#F2F2F2" },}, "受文人")
+                  , React.createElement('th', { style: { width: "28%", border: "1px solid #777", padding: "6px 4px", background: "#F2F2F2" },}, "已讀日期")
+                )
+              )
+              , React.createElement('tbody', null
+                , flatRows.length === 0 ? (
+                  React.createElement('tr', null
+                    , React.createElement('td', {
+                        colSpan: 4,
+                        style: { border: "1px solid #777", padding: "20px 6px", textAlign: "center", color: "#666" },},
+                      "本月尚無留言紀錄"
+                    )
+                  )
+                ) : flatRows.map((r) => (
+                  React.createElement('tr', { key: r.key, style: { breakInside: "avoid" },}
+                    , React.createElement('td', { style: { border: "1px solid #777", padding: "5px 4px", verticalAlign: "top", wordBreak: "break-word" },}, r.postedAt)
+                    , React.createElement('td', { style: { border: "1px solid #777", padding: "5px 4px", verticalAlign: "top", wordBreak: "break-word" },}, r.sender)
+                    , React.createElement('td', { style: { border: "1px solid #777", padding: "5px 4px", verticalAlign: "top", wordBreak: "break-word" },}, r.recipient)
+                    , React.createElement('td', { style: { border: "1px solid #777", padding: "5px 4px", verticalAlign: "top", wordBreak: "break-word" },}, r.readAt)
+                  )
+                ))
+              )
+            )
+          )
+
+          , React.createElement('div', { style: { marginTop: 10, fontSize: 9, color: "#666", textAlign: "right" },},
+              "共 ", flatRows.length, " 筆收文紀錄")
+        )
       )
     )
   );
 }
-
 
 function ZoneMaterialsReport({ year, month, onBack }) {
   const ym = `${year}-${String(month).padStart(2, "0")}`;
