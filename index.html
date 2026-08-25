@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.8・動態島統一";
+const APP_VERSION = "V3.8・主頁更新";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -835,15 +835,15 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
       )
 
       , React.createElement('div', { className: "flex flex-col items-center"  , style: { transform: `scale(${zoom})`, transformOrigin: "top center", transition: "transform .15s ease" },}
-        , React.createElement('div', { className: "w-full max-w-md px-5 pt-8 pb-4 text-center"     ,}
+        , React.createElement('div', { className: "w-full max-w-md px-5 pt-20 pb-4 text-center"     ,}
           , React.createElement('div', { className: "text-sm uppercase mb-1"  , style: { color: C.brandBlue, fontFamily: "Inter", fontWeight: 700, letterSpacing: "0.2em" },}, "藍帶無花果 · Blue Ribbon Fig"
 
             , React.createElement('span', { className: "ml-2 normal-case tracking-normal"  , style: { color: C.brandBlue, opacity: 0.65, fontWeight: 600 },}
               , APP_VERSION
             )
           )
-          , React.createElement('h1', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 26, color: C.ink },}, "選擇作業分區")
-          , React.createElement('p', { className: "text-sm mt-1" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "點選地圖上的分區以登入該區作業畫面")
+          , React.createElement('h1', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 26, color: C.ink },}, "藍帶無花果工項管理")
+          , React.createElement('p', { className: "text-sm mt-1" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "點選溫室或功能表")
         )
 
         , React.createElement('div', { className: "w-full max-w-md px-5 mb-3"   ,}
