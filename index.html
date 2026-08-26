@@ -4028,6 +4028,58 @@ function MonthlyReport({ year, month, onBack }) {
   const zoneTotal = (zid) => REPORT_ROWS.reduce((s, r) => s + (_optionalChain([rows, 'optionalAccess', _189 => _189[r.key], 'optionalAccess', _190 => _190[zid]]) || 0), 0);
   const rowTotal = (rowKey) => ZONES.reduce((s, z) => s + (_optionalChain([rows, 'optionalAccess', _191 => _191[rowKey], 'optionalAccess', _192 => _192[z.id]]) || 0), 0);
 
+  const ensureXlsxLibrary = async () => {
+    if (window.XLSX) return window.XLSX;
+    if (window.__blueRibbonXlsxPromise) return window.__blueRibbonXlsxPromise;
+    window.__blueRibbonXlsxPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      script.async = true;
+      script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error("XLSX library unavailable"));
+      script.onerror = () => reject(new Error("無法載入 Excel 元件，請確認網路連線"));
+      document.head.appendChild(script);
+    });
+    return window.__blueRibbonXlsxPromise;
+  };
+
+  const exportMonthlyReportXlsx = async () => {
+    if (!rows) return;
+    try {
+      const XLSX = await ensureXlsxLibrary();
+      const header = ["品項", ...ZONES.map((z) => z.short), "合計"];
+      const data = [
+        ["表一・耗材匯總表", computedYm || `${year}-${String(month).padStart(2, "0")}`],
+        [],
+        header,
+      ];
+      REPORT_ROWS.forEach((r) => {
+        data.push([
+          `${r.label} (${r.unit})`,
+          ...ZONES.map((z) => Number((rows[r.key] && rows[r.key][z.id]) || 0)),
+          Number(rowTotal(r.key) || 0),
+        ]);
+      });
+      data.push([
+        "各區合計",
+        ...ZONES.map((z) => Number(zoneTotal(z.id) || 0)),
+        "",
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws["!cols"] = [{ wch: 22 }, ...ZONES.map(() => ({ wch: 12 })), { wch: 14 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "表一耗材匯總");
+      XLSX.writeFile(
+        wb,
+        `表一_耗材匯總表_${computedYm || `${year}-${String(month).padStart(2, "0")}`}.xlsx`,
+        { compression: true }
+      );
+    } catch (e) {
+      console.error("表一 xlsx export failed", e);
+      alert(e && e.message ? e.message : "Excel 匯出失敗，請稍後再試");
+    }
+  };
+
   return (
     React.createElement('div', { className: "min-h-screen flex flex-col"  , style: { background: C.cream },}
       , React.createElement(NavBar, { backLabel: "回耗材與報表", onBack: onBack,} )
@@ -4047,7 +4099,14 @@ function MonthlyReport({ year, month, onBack }) {
               , updating ? "更新中…" : "🔄 更新"
             )
             , rows && (
-              React.createElement(PrintShareBar, { title: `表一・耗材匯總表 ${computedYm}`, summary: `藍帶無花果 表一・耗材匯總表 ${computedYm}，各分區合計：${ZONES.map((z) => `${z.short} ${zoneTotal(z.id) || 0}`).join("、")}`, onPrinted: bumpPrint,} )
+              React.createElement(React.Fragment, null
+                , React.createElement(PrintShareBar, { title: `表一・耗材匯總表 ${computedYm}`, summary: `藍帶無花果 表一・耗材匯總表 ${computedYm}，各分區合計：${ZONES.map((z) => `${z.short} ${zoneTotal(z.id) || 0}`).join("、")}`, onPrinted: bumpPrint,} )
+                , React.createElement('button', {
+                    onClick: exportMonthlyReportXlsx,
+                    className: "no-print px-3 py-1.5 rounded-lg text-xs",
+                    style: { background: "#217346", color: "white", fontFamily: "Inter", fontWeight: 800 }
+                  }, "Excel .xlsx")
+              )
             )
           )
         )
@@ -4369,6 +4428,76 @@ function ZoneMaterialsReport({ year, month, onBack }) {
     return r ? r.unit : "";
   };
 
+  const ensureXlsxLibrary = async () => {
+    if (window.XLSX) return window.XLSX;
+    if (window.__blueRibbonXlsxPromise) return window.__blueRibbonXlsxPromise;
+    window.__blueRibbonXlsxPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      script.async = true;
+      script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error("XLSX library unavailable"));
+      script.onerror = () => reject(new Error("無法載入 Excel 元件，請確認網路連線"));
+      document.head.appendChild(script);
+    });
+    return window.__blueRibbonXlsxPromise;
+  };
+
+  const exportZoneMaterialsXlsx = async () => {
+    if (!zone || !totals) return;
+    try {
+      const XLSX = await ensureXlsxLibrary();
+
+      const detail = [
+        ["表三・分區耗材統計"],
+        ["溫室", zone.name, "年月", ym],
+        [],
+        ["日期", "品項", "數量", "單位", "回報人", "回報時間"],
+      ];
+      Object.keys(dayMap)
+        .map(Number)
+        .sort((a, b) => a - b)
+        .forEach((day) => {
+          (dayMap[day] || []).forEach((entry) => {
+            detail.push([
+              `${ym}-${String(day).padStart(2, "0")}`,
+              entry.rowKey || entry.itemName || "",
+              Number(entry.qty || 0),
+              unitOf(entry.rowKey),
+              entry.personName || "",
+              entry.at || "",
+            ]);
+          });
+        });
+
+      const summary = [
+        ["表三・月彙總"],
+        ["溫室", zone.name, "年月", ym],
+        [],
+        ["品項", "數量", "單位"],
+        ...REPORT_ROWS.map((r) => [r.label, Number((totals && totals[r.key]) || 0), r.unit]),
+      ];
+
+      const wsDetail = XLSX.utils.aoa_to_sheet(detail);
+      wsDetail["!cols"] = [
+        { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 22 }
+      ];
+      const wsSummary = XLSX.utils.aoa_to_sheet(summary);
+      wsSummary["!cols"] = [{ wch: 20 }, { wch: 14 }, { wch: 10 }];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsDetail, "每日明細");
+      XLSX.utils.book_append_sheet(wb, wsSummary, "月彙總");
+      XLSX.writeFile(
+        wb,
+        `表三_${zone.name}_耗材統計_${ym}.xlsx`,
+        { compression: true }
+      );
+    } catch (e) {
+      console.error("表三 xlsx export failed", e);
+      alert(e && e.message ? e.message : "Excel 匯出失敗，請稍後再試");
+    }
+  };
+
 
   // —— 選溫室 ——
   if (!zone) {
@@ -4429,7 +4558,12 @@ function ZoneMaterialsReport({ year, month, onBack }) {
               title: `表三・${zone.name}耗材月曆 ${ym}`,
               summary: `藍帶無花果 表三・${zone.name} ${ym} 耗材月曆`,
               onPrinted: () => setPrintVersion((v) => v + 1),
-            })
+            }),
+            totals && React.createElement('button', {
+              onClick: exportZoneMaterialsXlsx,
+              className: "no-print px-3 py-1.5 rounded-lg text-xs",
+              style: { background: "#217346", color: "white", fontFamily: "Inter", fontWeight: 800 }
+            }, "Excel .xlsx")
           )
         ),
         lastUpdated && React.createElement('div', { className: "text-xs mt-1", style: { color: C.inkSoft, fontFamily: "Inter" } }, "上次更新：", lastUpdated)
