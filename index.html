@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.8・主頁更新";
+const APP_VERSION = "V3.92・1.26MB母體・權限實效+A5B5";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -2053,13 +2053,13 @@ const FLOOR_SHAPES = {
     gate: { edge: "left", align: "center" },
   }, // 四北：2x2共4格，標籤依實際方位重新對應，大門在左側中間
   zone5: {
-    color: C.tableColor, rows: 4, cols: 2,
+    color: C.tableColor, rows: 5, cols: 2,
     cells: [
-      { id: "A4", r: 1, c: 1 }, { id: "A3", r: 2, c: 1 }, { id: "A2", r: 3, c: 1 }, { id: "A1", r: 4, c: 1 },
-      { id: "B4", r: 1, c: 2 }, { id: "B3", r: 2, c: 2 }, { id: "B2", r: 3, c: 2 }, { id: "B1", r: 4, c: 2 },
+      { id: "A5", r: 1, c: 1 }, { id: "A4", r: 2, c: 1 }, { id: "A3", r: 3, c: 1 }, { id: "A2", r: 4, c: 1 }, { id: "A1", r: 5, c: 1 },
+      { id: "B5", r: 1, c: 2 }, { id: "B4", r: 2, c: 2 }, { id: "B3", r: 3, c: 2 }, { id: "B2", r: 4, c: 2 }, { id: "B1", r: 5, c: 2 },
     ],
     gate: { edge: "bottom", align: "left" },
-  }, // 五期：2欄x4列，左欄A1~A4、右欄B1~B4（由下而上），左下角為大門
+  }, // 五期：2欄x5列，A5/B5新增於最上排；A1/B1維持最下排，大門位置不變
 };
 
 // 輔助函式：gate 可能是單一物件或陣列，統一判斷是否包含指定邊
@@ -6416,6 +6416,34 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   const [globalPersonnel, setGlobalPersonnel] = useState(false);
   const [globalPermissions, setGlobalPermissions] = useState(false);
   const [pendingPermCount, setPendingPermCount] = useState(0);
+  const [currentPersonPerm, setCurrentPersonPerm] = useState(null);
+
+  // 權限實際生效：所有字母級別都以「功能表2」儲存的 tier/menuPerms 為準。
+  const loadCurrentPersonPerm = async (id) => {
+    if (!id) { setCurrentPersonPerm(null); return; }
+    try {
+      await window.firebaseReady;
+      const res = await window.storage.get(`person:${id}`);
+      setCurrentPersonPerm(res ? JSON.parse(res.value) : null);
+    } catch (e) {
+      console.error("load current permission failed", e);
+      setCurrentPersonPerm(null);
+    }
+  };
+
+  const roleForMenu = (menuIndex) => {
+    // A/創辦人維持最高既有權限；其餘角色一律再讀個人權限。
+    if (role === "designer" || role === "founder") return role;
+    const p = currentPersonPerm;
+    const granted = !!(p && p.status === "active" && (
+      p.tier === "修改" ||
+      (p.menuPerms && p.menuPerms[menuIndex] && p.menuPerms[menuIndex].edit)
+    ));
+    if (role === "manager") return (menuIndex === 1 && granted) ? "designer" : role;
+    if (!granted) return role;
+    // 功能2原本只允許 designer/founder 編輯；其餘功能 manager 即可觸發既有 editable。
+    return menuIndex === 1 ? "designer" : "manager";
+  };
 
   const refreshPendingCount = async () => {
     try {
@@ -6424,8 +6452,9 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     } catch (e) { console.error(e); }
   };
   useEffect(() => { refreshPendingCount(); }, []);
+  useEffect(() => { if (loggedInId) loadCurrentPersonPerm(loggedInId); }, [loggedInId]);
 
-  const handleLogin = (r, id) => { setRole(r); setLoggedInId(id); };
+  const handleLogin = (r, id) => { setRole(r); setLoggedInId(id); loadCurrentPersonPerm(id); };
   const handleLogout = () => {
     setZone(null);
     setView("menu");
@@ -6436,6 +6465,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     setGlobalPermissions(false);
     setRole("guest");
     setLoggedInId(null);
+    setCurrentPersonPerm(null);
     _optionalChain([onLogoutToSplash, 'optionalCall', _283 => _283()]);
   };
 
@@ -6517,10 +6547,10 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       )
 
       , globalReport && React.createElement(ReportsHub, { onBack: backToMap,} )
-      , globalCalendar && React.createElement(MasterCalendar, { onBack: backToMap, role: role,} )
-      , globalFolders && React.createElement(ZoneWorkFolders, { onBack: backToMap, role: role, loggedInId: loggedInId,} )
-      , globalPersonnel && React.createElement(PersonnelMenu, { onBack: backToMap, role: role, onChanged: refreshPendingCount,} )
-      , globalPermissions && React.createElement(PermissionsMenu, { onBack: backToMap, role: role, onChanged: refreshPendingCount, onLogout: handleLogout,} )
+      , globalCalendar && React.createElement(MasterCalendar, { onBack: backToMap, role: roleForMenu(4),} )
+      , globalFolders && React.createElement(ZoneWorkFolders, { onBack: backToMap, role: roleForMenu(3), loggedInId: loggedInId,} )
+      , globalPersonnel && React.createElement(PersonnelMenu, { onBack: backToMap, role: roleForMenu(0), onChanged: refreshPendingCount,} )
+      , globalPermissions && React.createElement(PermissionsMenu, { onBack: backToMap, role: roleForMenu(1), onChanged: async () => { await refreshPendingCount(); await loadCurrentPersonPerm(loggedInId); }, onLogout: handleLogout,} )
 
       , zone && view === "menu" && React.createElement(ZoneMenu, { zone: zone, onBack: backToMap, onPick: setView,} )
       , zone && view === "function" && (
@@ -6536,19 +6566,19 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
         )
       )
       , zone && view === "floorplan" && (
-        React.createElement(FloorPlan, { zone: zone, onBack: backToMenu, role: role, onCycleRole: cycleRole, loggedInId: loggedInId,} )
+        React.createElement(FloorPlan, { zone: zone, onBack: backToMenu, role: roleForMenu(3), onCycleRole: cycleRole, loggedInId: loggedInId,} )
       )
       , zone && view === "spray" && (
-        React.createElement(SprayWorksheet, { zone: zone, onBack: backToMenu, role: role,} )
+        React.createElement(SprayWorksheet, { zone: zone, onBack: backToMenu, role: roleForMenu(6),} )
       )
       , zone && view === "workmonth" && (
-        React.createElement(WorkMonthForm, { zone: zone, onBack: backToMenu, role: role,} )
+        React.createElement(WorkMonthForm, { zone: zone, onBack: backToMenu, role: roleForMenu(3),} )
       )
       , zone && view === "report" && React.createElement(ReportsHub, { onBack: backToFunction,} )
-      , zone && view === "calendar" && React.createElement(MasterCalendar, { onBack: backToFunction, role: role,} )
-      , zone && view === "folders" && React.createElement(ZoneWorkFolders, { onBack: backToFunction, role: role, loggedInId: loggedInId,} )
-      , zone && view === "personnel" && React.createElement(PersonnelMenu, { onBack: backToFunction, role: role, onChanged: refreshPendingCount,} )
-      , zone && view === "permissions" && React.createElement(PermissionsMenu, { onBack: backToFunction, role: role, onChanged: refreshPendingCount, onLogout: handleLogout,} )
+      , zone && view === "calendar" && React.createElement(MasterCalendar, { onBack: backToFunction, role: roleForMenu(4),} )
+      , zone && view === "folders" && React.createElement(ZoneWorkFolders, { onBack: backToFunction, role: roleForMenu(3), loggedInId: loggedInId,} )
+      , zone && view === "personnel" && React.createElement(PersonnelMenu, { onBack: backToFunction, role: roleForMenu(0), onChanged: refreshPendingCount,} )
+      , zone && view === "permissions" && React.createElement(PermissionsMenu, { onBack: backToFunction, role: roleForMenu(1), onChanged: async () => { await refreshPendingCount(); await loadCurrentPersonPerm(loggedInId); }, onLogout: handleLogout,} )
     )
   );
 }
