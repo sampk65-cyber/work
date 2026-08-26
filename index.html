@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.93・溫室3秒轉場語音";
+const APP_VERSION = "V3.94・五期圖2轉場・全區語音";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -6488,9 +6488,23 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   };
   const enterZone = (z) => {
     speakZoneEntry(z);
-    setEnteringZone(z); setEntryFading(false);
+
+    // 只有五期顯示圖2約3秒轉場；其他溫室僅播報語音後直接進入原功能。
+    if (z.id !== "zone5") {
+      setZone(z);
+      setView("menu");
+      return;
+    }
+
+    setEnteringZone(z);
+    setEntryFading(false);
     window.setTimeout(() => setEntryFading(true), 2200);
-    window.setTimeout(() => { setZone(z); setView("menu"); setEnteringZone(null); setEntryFading(false); }, 3000);
+    window.setTimeout(() => {
+      setZone(z);
+      setView("menu");
+      setEnteringZone(null);
+      setEntryFading(false);
+    }, 3000);
   };
   const backToMap = () => {
     setZone(null);
