@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.94・五期圖2轉場・全區語音";
+const APP_VERSION = "V3.95・姓名+6/7分項+確認鍵+五期乾淨淡出";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -2772,7 +2772,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
   const [data, setData] = useState(blank);
   const zoneKey = `zonework:${zone.id}:${activeYm}`; // 6/7/8是整區共用，跟1-5(每格各自)分開存
   const blankZone = {
-    checks: {}, extra: {}, multi8Main: [], extra8: {}, pending: {}, timestamps: {},
+    checks: {}, extra: {}, multi6: [], multi7: [], multi8Main: [], extra8: {}, pending: {}, timestamps: {},
     progress: {}, confirmedBy: {}, confirmedTotals: {}, confirmHistory: [],
   };
   const [zoneData, setZoneData] = useState(blankZone);
@@ -2858,6 +2858,10 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
   };
 
   const retrySave = () => { if (lastPayloadRef.current) runWrite(lastPayloadRef.current); };
+  const confirmAssignmentSave = () => {
+    runWrite(data);
+    runZoneWrite(zoneData);
+  };
 
   const persist = (next) => {
     setData(next);
@@ -2888,6 +2892,52 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
       timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: nowStamp() } },
     });
   };
+  const selected67From = (src, itemId) => {
+    const key = itemId === 6 ? "multi6" : "multi7";
+    const arr = Array.isArray(src && src[key]) ? src[key] : [];
+    if (arr.length) return arr;
+    const legacy = src && src.checks ? src.checks[itemId] : null;
+    return legacy ? [legacy] : [];
+  };
+  const selected67 = (itemId) => selected67From(zoneData, itemId);
+
+  const toggleMulti67 = (itemId, opt) => {
+    if (!editable) return;
+    const key = itemId === 6 ? "multi6" : "multi7";
+    const cur = selected67(itemId);
+    const arr = cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt];
+    persistZone({
+      ...zoneData,
+      [key]: arr,
+      checks: { ...zoneData.checks, [itemId]: arr[0] || null },
+      pending: { ...zoneData.pending, [itemId]: arr.length > 0 },
+      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: nowStamp() } },
+    });
+  };
+
+  const qty67 = (itemId, opt, src = zoneData) => {
+    const e = (src.extra && src.extra[itemId]) || {};
+    if (itemId === 6) return opt === "噴灌" ? (e.minutes ?? "") : (e.tons ?? "");
+    return e[opt] ?? ((selected67From(src, 7).length === 1 && selected67From(src, 7)[0] === opt) ? (e.bags ?? "") : "");
+  };
+  const setQty67 = (itemId, opt, value) => {
+    if (!editable) return;
+    const key = itemId === 6 ? "multi6" : "multi7";
+    const cur = selected67(itemId);
+    const arr = (value !== "" && !cur.includes(opt)) ? [...cur, opt] : cur;
+    const field = itemId === 6 ? (opt === "噴灌" ? "minutes" : "tons") : opt;
+    const nextExtra = { ...(zoneData.extra[itemId] || {}), [field]: value };
+    if (itemId === 7 && arr.length === 1 && arr[0] === opt) nextExtra.bags = value; // 舊資料相容
+    persistZoneDebounced({
+      ...zoneData,
+      [key]: arr,
+      checks: { ...zoneData.checks, [itemId]: arr[0] || null },
+      extra: { ...zoneData.extra, [itemId]: nextExtra },
+      pending: { ...zoneData.pending, [itemId]: arr.length > 0 },
+      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: nowStamp() } },
+    });
+  };
+
   const zoneDebounceRef = useRef({});
   const persistZoneDebounced = (next, delayMs = 500) => {
     setZoneData(next); // 畫面立即更新，不等儲存完成
@@ -2922,26 +2972,21 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
     if (![6, 7, 8].includes(itemId)) return baseData;
     const totals = { ...(baseData.confirmedTotals || {}) };
     let next = { ...baseData };
-    if (itemId === 6) {
-      const opt = _optionalChain([baseData, 'access', _45 => _45.checks, 'optionalAccess', _46 => _46[6]]);
-      if (opt === "溝灌") {
-        const v = parseFloat(_optionalChain([baseData, 'access', _47 => _47.extra, 'optionalAccess', _48 => _48[6], 'optionalAccess', _49 => _49.tons]));
-        if (!isNaN(v) && v > 0) totals["溝灌"] = (totals["溝灌"] || 0) + v;
-      } else if (opt === "噴灌") {
-        const v = parseFloat(_optionalChain([baseData, 'access', _50 => _50.extra, 'optionalAccess', _51 => _51[6], 'optionalAccess', _52 => _52.minutes]));
-        if (!isNaN(v) && v > 0) totals["噴灌"] = (totals["噴灌"] || 0) + v;
-      }
-      next = { ...next, checks: { ...next.checks, 6: null }, extra: { ...next.extra, 6: {} } };
-    } else if (itemId === 7) {
-      const opt = _optionalChain([baseData, 'access', _53 => _53.checks, 'optionalAccess', _54 => _54[7]]);
-      if (opt) {
-        const v = parseFloat(_optionalChain([baseData, 'access', _55 => _55.extra, 'optionalAccess', _56 => _56[7], 'optionalAccess', _57 => _57.bags]));
+    if (itemId === 6 || itemId === 7) {
+      const selected = selected67From(baseData, itemId);
+      selected.forEach((opt) => {
+        const v = parseFloat(qty67(itemId, opt, baseData));
         if (!isNaN(v) && v > 0) totals[opt] = (totals[opt] || 0) + v;
-      }
-      next = { ...next, checks: { ...next.checks, 7: null }, extra: { ...next.extra, 7: {} } };
+      });
+      next = {
+        ...next,
+        [itemId === 6 ? "multi6" : "multi7"]: [],
+        checks: { ...next.checks, [itemId]: null },
+        extra: { ...next.extra, [itemId]: {} },
+      };
     } else if (itemId === 8) {
       (baseData.multi8Main || []).forEach((opt) => {
-        const v = parseFloat(_optionalChain([baseData, 'access', _58 => _58.extra8, 'optionalAccess', _59 => _59[opt]]));
+        const v = parseFloat((baseData.extra8 || {})[opt]);
         if (!isNaN(v) && v > 0) totals[opt] = (totals[opt] || 0) + v;
       });
       next = { ...next, multi8Main: [], extra8: {} };
@@ -3020,13 +3065,20 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
             });
             nextZone = { ...nextZone, multi8Main: [], extra8: {} };
           } else {
-            const rowKey = itemId === 6 ? _optionalChain([zoneData, 'access', _62 => _62.checks, 'optionalAccess', _63 => _63[6]]) : _optionalChain([zoneData, 'access', _64 => _64.checks, 'optionalAccess', _65 => _65[7]]);
-            const n = parseFloat(qtyOverrides[itemId]);
-            if (rowKey && !isNaN(n) && n > 0) {
-              totals[rowKey] = (totals[rowKey] || 0) + n;
-              historyEntriesZone.push({ itemId, itemName: itemNameOf(itemId), rowKey, qty: n, personId, personName: personNameOf(quickPeople, personId), at: nowStamp() });
-            }
-            nextZone = { ...nextZone, checks: { ...nextZone.checks, [itemId]: null }, extra: { ...nextZone.extra, [itemId]: {} } };
+            const qtyMap = (qtyOverrides[itemId] && typeof qtyOverrides[itemId] === "object") ? qtyOverrides[itemId] : {};
+            Object.entries(qtyMap).forEach(([rowKey, val]) => {
+              const n = parseFloat(val);
+              if (rowKey && !isNaN(n) && n > 0) {
+                totals[rowKey] = (totals[rowKey] || 0) + n;
+                historyEntriesZone.push({ itemId, itemName: itemNameOf(itemId), rowKey, qty: n, personId, personName: personNameOf(quickPeople, personId), at: nowStamp() });
+              }
+            });
+            nextZone = {
+              ...nextZone,
+              [itemId === 6 ? "multi6" : "multi7"]: [],
+              checks: { ...nextZone.checks, [itemId]: null },
+              extra: { ...nextZone.extra, [itemId]: {} }
+            };
           }
           nextZone.confirmedTotals = totals;
         } else {
@@ -3097,25 +3149,33 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
   const personNameOf = (list, personId) => _optionalChain([list, 'access', _75 => _75.find, 'call', _76 => _76((p) => p.id === personId), 'optionalAccess', _77 => _77.name]) || founderNameOf(personId) || personId;
 
   // 6/7是使用量（不是完成度），確認時直接輸入實際用了多少，回報即等於累加確認，不用選1~5進度
-  const reportQtyItem = (itemId, personId, qty) => {
-    const n = parseFloat(qty);
-    if (isNaN(n) || n <= 0) return;
-    const already = _optionalChain([zoneData, 'access', _78 => _78.confirmedBy, 'optionalAccess', _79 => _79[itemId]]) || [];
-    const nextConfirmedBy = already.includes(personId) ? already : [...already, personId];
+  const reportQtyItem = (itemId, personId, qtyMap) => {
+    const selected = selected67(itemId);
     const totals = { ...(zoneData.confirmedTotals || {}) };
-    let rowKey = null;
-    if (itemId === 6) rowKey = _optionalChain([zoneData, 'access', _80 => _80.checks, 'optionalAccess', _81 => _81[6]]); // "溝灌" 或 "噴灌"
-    if (itemId === 7) rowKey = _optionalChain([zoneData, 'access', _82 => _82.checks, 'optionalAccess', _83 => _83[7]]); // "米糠" 或 "金旺"
-    if (rowKey) totals[rowKey] = (totals[rowKey] || 0) + n;
+    const historyEntries = [];
+    selected.forEach((opt) => {
+      const raw = (qtyMap && typeof qtyMap === "object") ? qtyMap[opt] : qtyMap;
+      const n = parseFloat(raw);
+      if (!isNaN(n) && n > 0) {
+        totals[opt] = (totals[opt] || 0) + n;
+        historyEntries.push({ itemId, itemName: itemNameOf(itemId), rowKey: opt, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: nowStamp() });
+      }
+    });
+    if (historyEntries.length === 0) return;
+    const already = (zoneData.confirmedBy && zoneData.confirmedBy[itemId]) || [];
+    const nextConfirmedBy = already.includes(personId) ? already : [...already, personId];
     let next = {
       ...zoneData,
       confirmedTotals: totals,
+      [itemId === 6 ? "multi6" : "multi7"]: [],
+      checks: { ...zoneData.checks, [itemId]: null },
+      extra: { ...zoneData.extra, [itemId]: {} },
       progress: { ...zoneData.progress, [itemId]: 1 },
       confirmedBy: { ...zoneData.confirmedBy, [itemId]: nextConfirmedBy },
       pending: { ...zoneData.pending, [itemId]: false },
       timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], ackAt: nowStamp() } },
     };
-    next = appendHistory(next, [{ itemId, itemName: itemNameOf(itemId), rowKey, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: nowStamp() }]);
+    next = appendHistory(next, historyEntries);
     persistZone(next);
     setConfirmItemId(null);
   };
@@ -3172,8 +3232,16 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
       const already = cur.includes(itemId);
       if (already) return cur.filter((x) => x !== itemId);
       // 勾選6/7/8時，預先帶入原訂數量方便快速確認，仍可自行修改成實際使用量
-      if (itemId === 6) setQuickQty((q) => ({ ...q, 6: _nullishCoalesce(q[6], () => ( (_optionalChain([zoneData, 'access', _88 => _88.extra, 'optionalAccess', _89 => _89[6], 'optionalAccess', _90 => _90.minutes]) || _optionalChain([zoneData, 'access', _91 => _91.extra, 'optionalAccess', _92 => _92[6], 'optionalAccess', _93 => _93.tons]) || ""))) }));
-      if (itemId === 7) setQuickQty((q) => ({ ...q, 7: _nullishCoalesce(q[7], () => ( (_optionalChain([zoneData, 'access', _94 => _94.extra, 'optionalAccess', _95 => _95[7], 'optionalAccess', _96 => _96.bags]) || ""))) }));
+      if (itemId === 6 || itemId === 7) {
+        setQuickQty8((q) => {
+          const next = { ...q };
+          selected67(itemId).forEach((opt) => {
+            const k = `${itemId}:${opt}`;
+            if (next[k] === undefined) next[k] = qty67(itemId, opt);
+          });
+          return next;
+        });
+      }
       if (itemId === 8) {
         setQuickQty8((q) => {
           const next = { ...q };
@@ -3187,8 +3255,8 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
   const submitQuickConfirm = () => {
     if (!quickPersonId || quickSelected.length === 0) return;
     const qtyOverrides = {};
-    if (quickSelected.includes(6)) qtyOverrides[6] = quickQty[6];
-    if (quickSelected.includes(7)) qtyOverrides[7] = quickQty[7];
+    if (quickSelected.includes(6)) qtyOverrides[6] = Object.fromEntries(selected67(6).map((opt) => [opt, quickQty8[`6:${opt}`] ?? qty67(6, opt)]));
+    if (quickSelected.includes(7)) qtyOverrides[7] = Object.fromEntries(selected67(7).map((opt) => [opt, quickQty8[`7:${opt}`] ?? qty67(7, opt)]));
     if (quickSelected.includes(8)) qtyOverrides[8] = quickQty8;
     quickConfirmItems(quickSelected, quickPersonId, qtyOverrides);
     setQuickSelected([]);
@@ -3203,7 +3271,8 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
     if (!_optionalChain([src, 'access', _99 => _99.pending, 'optionalAccess', _100 => _100[itemId]])) return false;
     if (itemId <= 5) return !!data.levels[itemId];
     if (itemId === 8) return (zoneData.multi8Main || []).length > 0;
-    return !!_optionalChain([zoneData, 'access', _101 => _101.checks, 'optionalAccess', _102 => _102[itemId]]); // 6、7
+    if (itemId === 6 || itemId === 7) return selected67(itemId).length > 0;
+    return false;
   };
   const pendingCount = WORK_ITEMS.filter((it) => isPendingReal(it.id)).length;
   const siblingCells = shape ? shape.cells.filter((c) => c.id !== cellId) : [];
@@ -3278,6 +3347,11 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
               , React.createElement(Users, { size: 13,} ), " " , _optionalChain([data, 'access', _113 => _113.recipientIds, 'optionalAccess', _114 => _114.length]) ? `受文 ${data.recipientIds.length} 人` : "設定送出對象"
             )
           )
+          , editable && React.createElement('button', {
+              onClick: confirmAssignmentSave,
+              className: "flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs flex-shrink-0",
+              style: { background: "#D94F3D", color: "white", border: "2px solid #B63426", fontFamily: "Inter", fontWeight: 900, boxShadow: "0 2px 6px rgba(217,79,61,.25)" }
+            }, React.createElement(Check, { size: 14 }), " 確認")
           , saveStatus === "saving" && (
             React.createElement('span', { className: "text-xs flex-shrink-0" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "儲存中…")
           )
@@ -3378,20 +3452,20 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
               , (quickSelected.includes(6) || quickSelected.includes(7) || quickSelected.includes(8)) && (
                 React.createElement('div', { className: "flex flex-col gap-2 mb-2 p-2 rounded-lg"     , style: { background: C.paper },}
                   , React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter", fontWeight: 700 },}, "6/7/8是使用量，請填實際用量（已預帶原訂數量，可修改）")
-                  , quickSelected.includes(6) && (
-                    React.createElement('div', { className: "flex items-center gap-2"  ,}
-                      , React.createElement('span', { className: "text-xs flex-shrink-0" , style: { width: 60, fontFamily: "Inter", color: C.ink },}, "6.補水（", _optionalChain([zoneData, 'access', _118 => _118.checks, 'optionalAccess', _119 => _119[6]]) || "-", "）")
-                      , React.createElement('input', { type: "number", value: _nullishCoalesce(quickQty[6], () => ( "")), onChange: (e) => setQuickQty((q) => ({ ...q, 6: e.target.value })), className: "flex-1 px-2 py-1.5 rounded text-xs"    , style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" },} )
-                      , React.createElement('span', { className: "text-xs flex-shrink-0" , style: { color: C.inkSoft, fontFamily: "Inter" },}, _optionalChain([data, 'access', _120 => _120.checks, 'optionalAccess', _121 => _121[6]]) === "噴灌" ? "分鐘" : "噸")
+                  , quickSelected.includes(6) && selected67(6).map((opt) => (
+                    React.createElement('div', { key: `q6-${opt}`, className: "flex items-center gap-2" },
+                      React.createElement('span', { className: "text-xs flex-shrink-0", style: { width: 70, fontFamily: "Inter", color: C.ink } }, "6.", opt),
+                      React.createElement('input', { type: "number", value: quickQty8[`6:${opt}`] ?? qty67(6,opt), onChange: (e) => setQuickQty8((q) => ({ ...q, [`6:${opt}`]: e.target.value })), className: "flex-1 px-2 py-1.5 rounded text-xs", style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" } }),
+                      React.createElement('span', { className: "text-xs flex-shrink-0", style: { color: C.inkSoft, fontFamily: "Inter" } }, opt === "噴灌" ? "分鐘" : "噸")
                     )
-                  )
-                  , quickSelected.includes(7) && (
-                    React.createElement('div', { className: "flex items-center gap-2"  ,}
-                      , React.createElement('span', { className: "text-xs flex-shrink-0" , style: { width: 60, fontFamily: "Inter", color: C.ink },}, "7.施肥（", _optionalChain([zoneData, 'access', _122 => _122.checks, 'optionalAccess', _123 => _123[7]]) || "-", "）")
-                      , React.createElement('input', { type: "number", value: _nullishCoalesce(quickQty[7], () => ( "")), onChange: (e) => setQuickQty((q) => ({ ...q, 7: e.target.value })), className: "flex-1 px-2 py-1.5 rounded text-xs"    , style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" },} )
-                      , React.createElement('span', { className: "text-xs flex-shrink-0" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "包")
+                  ))
+                  , quickSelected.includes(7) && selected67(7).map((opt) => (
+                    React.createElement('div', { key: `q7-${opt}`, className: "flex items-center gap-2" },
+                      React.createElement('span', { className: "text-xs flex-shrink-0", style: { width: 70, fontFamily: "Inter", color: C.ink } }, "7.", opt === "金旺" ? "金旺特" : opt),
+                      React.createElement('input', { type: "number", value: quickQty8[`7:${opt}`] ?? qty67(7,opt), onChange: (e) => setQuickQty8((q) => ({ ...q, [`7:${opt}`]: e.target.value })), className: "flex-1 px-2 py-1.5 rounded text-xs", style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" } }),
+                      React.createElement('span', { className: "text-xs flex-shrink-0", style: { color: C.inkSoft, fontFamily: "Inter" } }, "包")
                     )
-                  )
+                  ))
                   , quickSelected.includes(8) && (zoneData.multi8Main || []).map((opt) => (
                     React.createElement('div', { key: opt, className: "flex items-center gap-2"  ,}
                       , React.createElement('span', { className: "text-xs flex-shrink-0" , style: { width: 60, fontFamily: "Inter", color: C.ink },}, "8.", opt)
@@ -3440,8 +3514,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
             const inProgress = isPending && itemProgress > 1; // 已有人回報過、但還沒做完(進度>1) → 用另一色區分於「完全未處理」
             const confirmedList = _optionalChain([src, 'access', _126 => _126.confirmedBy, 'optionalAccess', _127 => _127[item.id]]) || [];
             const ts = _optionalChain([src, 'access', _128 => _128.timestamps, 'optionalAccess', _129 => _129[item.id]]);
-            const wateringOpt = item.id === 6 ? zoneData.checks[6] : null;
-            const hasValue = item.id === 8 ? zoneData.multi8Main.length > 0 : (data.levels[item.id] || zoneData.checks[item.id]);
+            const hasValue = item.id === 8 ? zoneData.multi8Main.length > 0 : ([6,7].includes(item.id) ? selected67(item.id).length > 0 : data.levels[item.id]);
             return (
               React.createElement('div', {
                 key: item.id,
@@ -3478,61 +3551,30 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
                     );
                   })
 
-                  , item.id === 6 && item.options.map((opt) => {
-                    const selected = zoneData.checks[6] === opt;
-                    return (
-                      React.createElement('button', { key: opt, disabled: !editable, onClick: () => setCheck(6, opt),
-                        className: "flex items-center gap-1 px-1.5 py-1 rounded text-xs"      ,
-                        style: { background: selected ? C.tableColor : C.cream, color: selected ? "white" : C.inkSoft, border: `1px solid ${selected ? "transparent" : C.line}`, fontFamily: "Inter", fontWeight: 600, cursor: editable ? "pointer" : "default" },}
-                        , opt
-                      )
-                    );
-                  })
-                  , item.id === 6 && wateringOpt === "噴灌" && (
-                    React.createElement('span', { className: "flex items-center gap-1"  ,}
-                      , React.createElement('input', { type: "number", disabled: !editable, placeholder: "分", value: _nullishCoalesce(_optionalChain([zoneData, 'access', _130 => _130.extra, 'optionalAccess', _131 => _131[6], 'optionalAccess', _132 => _132.minutes]), () => ( "")), onChange: (e) => setExtra(6, "minutes", e.target.value), className: "text-xs px-1.5 py-1 rounded"   , style: { width: 44, border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" },} )
-                      , React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" },}, "分鐘")
-                      , editable && _optionalChain([zoneData, 'access', _133 => _133.extra, 'optionalAccess', _134 => _134[6], 'optionalAccess', _135 => _135.minutes]) && (
-                        React.createElement('button', { onClick: () => clearExtra(6, "minutes"), className: "flex items-center justify-center rounded-full flex-shrink-0"    , style: { width: 18, height: 18, background: `${C.alert}18` },}
-                          , React.createElement(X, { size: 11, color: C.alert,} )
-                        )
-                      )
+                  , [6, 7].includes(item.id) && (
+                    React.createElement('div', { className: "flex flex-wrap gap-2 py-1" },
+                      item.options.map((opt) => {
+                        const selected = selected67(item.id).includes(opt);
+                        const unit = item.id === 6 ? (opt === "噴灌" ? "分鐘" : "噸") : "包";
+                        return React.createElement('div', { key: opt, className: "flex items-center gap-1" },
+                          React.createElement('button', {
+                            disabled: !editable,
+                            onClick: () => toggleMulti67(item.id, opt),
+                            className: "px-1.5 py-1 rounded text-xs",
+                            style: { background: selected ? C.tableColor : C.cream, color: selected ? "white" : C.inkSoft, border: `1px solid ${selected ? "transparent" : C.line}`, fontFamily: "Inter", fontWeight: 700 }
+                          }, opt === "金旺" ? "金旺特" : opt),
+                          React.createElement('input', {
+                            type: "number", disabled: !editable, placeholder: unit,
+                            value: qty67(item.id, opt),
+                            onChange: (e) => setQty67(item.id, opt, e.target.value),
+                            className: "text-xs px-1.5 py-1 rounded",
+                            style: { width: 48, border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" }
+                          }),
+                          React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, unit)
+                        );
+                      })
                     )
                   )
-                  , item.id === 6 && wateringOpt === "溝灌" && (
-                    React.createElement('span', { className: "flex items-center gap-1"  ,}
-                      , React.createElement('input', { type: "number", disabled: !editable, placeholder: "噸", value: _nullishCoalesce(_optionalChain([zoneData, 'access', _136 => _136.extra, 'optionalAccess', _137 => _137[6], 'optionalAccess', _138 => _138.tons]), () => ( "")), onChange: (e) => setExtra(6, "tons", e.target.value), className: "text-xs px-1.5 py-1 rounded"   , style: { width: 44, border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" },} )
-                      , React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" },}, "噸")
-                      , editable && _optionalChain([zoneData, 'access', _139 => _139.extra, 'optionalAccess', _140 => _140[6], 'optionalAccess', _141 => _141.tons]) && (
-                        React.createElement('button', { onClick: () => clearExtra(6, "tons"), className: "flex items-center justify-center rounded-full flex-shrink-0"    , style: { width: 18, height: 18, background: `${C.alert}18` },}
-                          , React.createElement(X, { size: 11, color: C.alert,} )
-                        )
-                      )
-                    )
-                  )
-
-                  , item.id === 7 && item.options.map((opt) => {
-                    const selected = zoneData.checks[7] === opt;
-                    return (
-                      React.createElement('button', { key: opt, disabled: !editable, onClick: () => setCheck(7, opt),
-                        className: "flex items-center gap-1 px-1.5 py-1 rounded text-xs"      ,
-                        style: { background: selected ? C.tableColor : C.cream, color: selected ? "white" : C.inkSoft, border: `1px solid ${selected ? "transparent" : C.line}`, fontFamily: "Inter", fontWeight: 600, cursor: editable ? "pointer" : "default" },}
-                        , opt
-                      )
-                    );
-                  })
-                  , item.id === 7 && zoneData.checks[7] && (
-                    React.createElement('span', { className: "flex items-center gap-1"  ,}
-                      , React.createElement('input', { type: "number", disabled: !editable, placeholder: "包", value: _nullishCoalesce(_optionalChain([zoneData, 'access', _142 => _142.extra, 'optionalAccess', _143 => _143[7], 'optionalAccess', _144 => _144.bags]), () => ( "")), onChange: (e) => setExtra(7, "bags", e.target.value), className: "text-xs px-1.5 py-1 rounded"   , style: { width: 44, border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" },} )
-                      , React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" },}, "包")
-                      , editable && _optionalChain([zoneData, 'access', _145 => _145.extra, 'optionalAccess', _146 => _146[7], 'optionalAccess', _147 => _147.bags]) && (
-                        React.createElement('button', { onClick: () => clearExtra(7, "bags"), className: "flex items-center justify-center rounded-full flex-shrink-0"    , style: { width: 18, height: 18, background: `${C.alert}18` },}
-                          , React.createElement(X, { size: 11, color: C.alert,} )
-                        )
-                      )
-                    )
-                  )
-
                   , item.id === 8 && (
                     React.createElement('div', { className: "flex flex-col gap-1.5 w-full"   ,}
                       , React.createElement('div', { className: "flex items-center gap-1 flex-wrap"   ,}
@@ -3718,31 +3760,35 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
 
                 )
               )
-            ) : [6, 7].includes(confirmItemId) ? (
+             ) : [6, 7].includes(confirmItemId) ? (
               React.createElement(React.Fragment, null
-                , React.createElement('div', { className: "text-xs mb-1.5" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "2. 實際使用量（是使用量不是完成度，回報即累加確認）" )
-                , React.createElement('div', { className: "flex items-center gap-2 mb-3"   ,}
-                  , React.createElement('input', {
-                    type: "number",
-                    value: reportedQty,
-                    onChange: (e) => setReportedQty(e.target.value),
-                    placeholder: confirmItemId === 6 ? `原訂 ${_optionalChain([zoneData, 'access', _156 => _156.extra, 'optionalAccess', _157 => _157[6], 'optionalAccess', _158 => _158.minutes]) || _optionalChain([zoneData, 'access', _159 => _159.extra, 'optionalAccess', _160 => _160[6], 'optionalAccess', _161 => _161.tons]) || "-"}` : `原訂 ${_optionalChain([zoneData, 'access', _162 => _162.extra, 'optionalAccess', _163 => _163[7], 'optionalAccess', _164 => _164.bags]) || "-"}包`,
-                    className: "flex-1 px-3 py-2 rounded-lg text-sm"    ,
-                    style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" },}
-                  )
-                  , React.createElement('span', { className: "text-xs flex-shrink-0" , style: { color: C.inkSoft, fontFamily: "Inter" },}
-                    , confirmItemId === 6 ? (_optionalChain([zoneData, 'access', _165 => _165.checks, 'optionalAccess', _166 => _166[6]]) === "噴灌" ? "分鐘" : "噸") : "包"
-                  )
+                , React.createElement('div', { className: "text-xs mb-1.5", style: { color: C.inkSoft, fontFamily: "Inter" } }, "2. 實際使用量（各項可分別輸入，回報後分別累加）")
+                , React.createElement('div', { className: "flex flex-col gap-2 mb-3" },
+                    selected67(confirmItemId).map((opt) => (
+                      React.createElement('div', { key: opt, className: "flex items-center gap-2" },
+                        React.createElement('span', { className: "text-sm flex-shrink-0", style: { width: 68, fontFamily: "Inter", color: C.ink } }, opt === "金旺" ? "金旺特" : opt),
+                        React.createElement('input', {
+                          type: "number",
+                          value: reportedQty8[opt] ?? "",
+                          onChange: (e) => setReportedQty8((cur) => ({ ...cur, [opt]: e.target.value })),
+                          placeholder: `原訂 ${qty67(confirmItemId, opt) || "-"}`,
+                          className: "flex-1 px-3 py-2 rounded-lg text-sm",
+                          style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono" }
+                        }),
+                        React.createElement('span', { className: "text-xs flex-shrink-0", style: { color: C.inkSoft, fontFamily: "Inter" } },
+                          confirmItemId === 6 ? (opt === "噴灌" ? "分鐘" : "噸") : "包"
+                        )
+                      )
+                    ))
                 )
                 , React.createElement('button', {
-                  disabled: !confirmerPick || !reportedQty,
-                  onClick: () => reportQtyItem(confirmItemId, confirmerPick, reportedQty),
-                  className: "w-full py-3 rounded-xl text-sm"   ,
-                  style: { background: C.tableColor, color: "white", fontFamily: "Inter", fontWeight: 700, opacity: (confirmerPick && reportedQty) ? 1 : 0.4 },}
-, "回報確認（累加進表一）"
-
-                )
+                    disabled: !confirmerPick || selected67(confirmItemId).length === 0,
+                    onClick: () => reportQtyItem(confirmItemId, confirmerPick, reportedQty8),
+                    className: "w-full py-3 rounded-xl text-sm",
+                    style: { background: C.tableColor, color: "white", fontFamily: "Inter", fontWeight: 700, opacity: (confirmerPick && selected67(confirmItemId).length) ? 1 : 0.4 }
+                  }, "回報確認（分項累加進表一）")
               )
+
             ) : (
               React.createElement(React.Fragment, null
                 , React.createElement('div', { className: "text-xs mb-1.5" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "2. 目前進度（1~5，現場常無法一次做完，之後可再開啟調整；數字越小完成度越高）" )
@@ -5473,24 +5519,30 @@ function ZoneWorkFolders({ onBack, role, loggedInId }) {
   const summarizeItem = (item, data) => {
     if (!data) return "-";
     if (item.type === "level") {
-      const lvl = _optionalChain([data, 'access', _227 => _227.levels, 'optionalAccess', _228 => _228[item.id]]);
+      const lvl = data.levels && data.levels[item.id];
       return lvl ? `等級${lvl}` : "-";
     }
-    if (item.id === 6) {
-      const opt = _optionalChain([data, 'access', _229 => _229.checks, 'optionalAccess', _230 => _230[6]]);
-      if (!opt) return "-";
-      if (opt === "噴灌") return `噴灌 ${_optionalChain([data, 'access', _231 => _231.extra, 'optionalAccess', _232 => _232[6], 'optionalAccess', _233 => _233.minutes]) || ""}分`;
-      if (opt === "溝灌") return `溝灌 ${_optionalChain([data, 'access', _234 => _234.extra, 'optionalAccess', _235 => _235[6], 'optionalAccess', _236 => _236.tons]) || ""}噸`;
-      return opt;
-    }
-    if (item.id === 7) {
-      const opt = _optionalChain([data, 'access', _237 => _237.checks, 'optionalAccess', _238 => _238[7]]);
-      if (!opt) return "-";
-      return `${opt} ${_optionalChain([data, 'access', _239 => _239.extra, 'optionalAccess', _240 => _240[7], 'optionalAccess', _241 => _241.bags]) || ""}包`;
+    if (item.id === 6 || item.id === 7) {
+      const key = item.id === 6 ? "multi6" : "multi7";
+      const arr = (Array.isArray(data[key]) && data[key].length) ? data[key] : ((data.checks && data.checks[item.id]) ? [data.checks[item.id]] : []);
+      if (!arr.length) return "-";
+      return arr.map((opt) => {
+        const e = (data.extra && data.extra[item.id]) || {};
+        let qty = "";
+        let unit = "";
+        if (item.id === 6) {
+          qty = opt === "噴灌" ? (e.minutes || "") : (e.tons || "");
+          unit = opt === "噴灌" ? "分" : "噸";
+        } else {
+          qty = e[opt] ?? ((arr.length === 1) ? (e.bags || "") : "");
+          unit = "包";
+        }
+        return `${opt === "金旺" ? "金旺特" : opt}${qty !== "" ? ` ${qty}${unit}` : ""}`;
+      }).join("、");
     }
     if (item.id === 8) {
-      if (!_optionalChain([data, 'access', _242 => _242.multi8Main, 'optionalAccess', _243 => _243.length])) return "-";
-      return data.multi8Main.map((opt) => `${opt}${_optionalChain([data, 'access', _244 => _244.extra8, 'optionalAccess', _245 => _245[opt]]) ? data.extra8[opt] + "kg" : ""}`).join("、");
+      if (!(data.multi8Main || []).length) return "-";
+      return data.multi8Main.map((opt) => `${opt}${data.extra8 && data.extra8[opt] ? data.extra8[opt] + "kg" : ""}`).join("、");
     }
     return "-";
   };
@@ -6085,6 +6137,24 @@ function InlineLoginWidget({ role, loggedInId, onLogin, onLogout }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
+  const [loginDisplayName, setLoginDisplayName] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    if (!loggedInId) { setLoginDisplayName(""); return () => { alive = false; }; }
+    (async () => {
+      try {
+        const people = await loadAllPeople();
+        const p = people.find((x) => x && x.id === loggedInId);
+        const founder = FOUNDER_ACCOUNTS.find((f) => f.id === loggedInId);
+        if (alive) setLoginDisplayName((p && p.name) || (founder && founder.name) || loggedInId);
+      } catch (e) {
+        const founder = FOUNDER_ACCOUNTS.find((f) => f.id === loggedInId);
+        if (alive) setLoginDisplayName((founder && founder.name) || loggedInId);
+      }
+    })();
+    return () => { alive = false; };
+  }, [loggedInId]);
 
   const doLogin = async (e) => {
     e.preventDefault();
@@ -6129,7 +6199,7 @@ function InlineLoginWidget({ role, loggedInId, onLogin, onLogout }) {
     return (
       React.createElement('div', { className: "rounded-xl p-4 flex items-center justify-between gap-2"     , style: { background: `${C.wine}12`, border: `2px solid ${C.wine}` },}
         , React.createElement('span', { className: "text-sm", style: { fontFamily: "Inter", color: C.ink },}, "已登入："
-          , React.createElement('span', { style: { fontWeight: 700, color: C.wine },}, founderNameOf(loggedInId) || loggedInId), "（", ROLE_LABELS[role], "）"
+          , React.createElement('span', { style: { fontWeight: 700, color: C.wine },}, loginDisplayName || loggedInId), loginDisplayName && loginDisplayName !== loggedInId ? `（${loggedInId}）` : "", "（", ROLE_LABELS[role], "）"
         )
         , React.createElement('div', { className: "flex items-center gap-2 flex-shrink-0"   ,}
           , React.createElement('button', { onClick: () => setShowChangePw(true), className: "px-2.5 py-1.5 rounded-lg text-xs"   , style: { background: `${C.wine}14`, color: C.wine, fontFamily: "Inter", fontWeight: 700 },}, "修改密碼"
@@ -6498,10 +6568,13 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
 
     setEnteringZone(z);
     setEntryFading(false);
-    window.setTimeout(() => setEntryFading(true), 2200);
     window.setTimeout(() => {
+      // 先把底層切到五期功能，再讓遮罩淡出；避免淡出末端閃回主頁。
       setZone(z);
       setView("menu");
+      setEntryFading(true);
+    }, 2200);
+    window.setTimeout(() => {
       setEnteringZone(null);
       setEntryFading(false);
     }, 3000);
