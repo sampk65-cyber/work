@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.95・姓名+6/7分項+確認鍵+五期乾淨淡出";
+const APP_VERSION = "V3.96・首頁日期節氣+總功能表光耀";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -752,6 +752,26 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
   const [zoom, setZoom] = useState(1);
   const [showGlobalMenu, setShowGlobalMenu] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  const [homeNow, setHomeNow] = useState(() => new Date());
+
+  // 首頁日期／節氣：沿用功能表5既有 SOLAR_TERMS_BY_MONTH；每月前半取第一節氣、後半取第二節氣。
+  useEffect(() => {
+    const timer = window.setInterval(() => setHomeNow(new Date()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const homeDateParts = (() => {
+    try {
+      const parts = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric" }).formatToParts(homeNow);
+      const month = Number((parts.find((p) => p.type === "month") || {}).value || (homeNow.getMonth() + 1));
+      const day = Number((parts.find((p) => p.type === "day") || {}).value || homeNow.getDate());
+      const pair = String(SOLAR_TERMS_BY_MONTH[month] || "").split("／");
+      return { month, day, term: day <= 15 ? (pair[0] || "") : (pair[1] || pair[0] || "") };
+    } catch (e) {
+      const month = homeNow.getMonth() + 1, day = homeNow.getDate();
+      const pair = String(SOLAR_TERMS_BY_MONTH[month] || "").split("／");
+      return { month, day, term: day <= 15 ? (pair[0] || "") : (pair[1] || pair[0] || "") };
+    }
+  })();
   const [pendingZones, setPendingZones] = useState({}); // { [zoneId]: true } 該分區本月是否有任何格子待確認
   const zoomIn = () => setZoom((z) => Math.min(2, +(z + 0.1).toFixed(2)));
   const zoomOut = () => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)));
@@ -823,6 +843,31 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
 
   return (
     React.createElement('div', { className: "min-h-screen", style: { background: C.cream },}
+      , React.createElement('style', null, `
+        @keyframes totalMenuEnergyGlow {
+          0%, 100% {
+            box-shadow: 0 0 0 1px rgba(255,255,255,.8), 0 0 7px rgba(255,98,55,.48), 0 0 14px rgba(255,196,92,.20);
+            filter: brightness(1);
+          }
+          45% {
+            box-shadow: 0 0 0 2px rgba(255,255,255,.95), 0 0 14px rgba(255,98,55,.85), 0 0 27px rgba(255,196,92,.52);
+            filter: brightness(1.10);
+          }
+          70% {
+            box-shadow: 0 0 0 1px rgba(255,255,255,.9), 0 0 10px rgba(255,110,60,.66), 0 0 19px rgba(255,215,120,.34);
+            filter: brightness(1.04);
+          }
+        }
+        .total-menu-energy {
+          animation: totalMenuEnergyGlow 2.2s ease-in-out infinite;
+          will-change: box-shadow, filter;
+        }
+        @keyframes solarInfoGlow {
+          0%, 100% { text-shadow: 0 0 3px rgba(255,90,54,.55), 0 0 8px rgba(255,90,54,.22); }
+          50% { text-shadow: 0 0 5px rgba(255,126,72,.95), 0 0 14px rgba(255,90,54,.55); }
+        }
+        .home-solar-info { animation: solarInfoGlow 2.6s ease-in-out infinite; }
+      `)
       /* 主頁整體縮放控制 */
       , React.createElement('div', { className: "fixed top-3 right-3 z-20 flex items-center gap-1 rounded-xl shadow-md p-1"         , style: { background: C.paper, border: `1px solid ${C.line}` },}
         , React.createElement('button', { onClick: zoomOut, className: "flex items-center justify-center rounded-lg"   , style: { width: 28, height: 28, background: C.cream },}
@@ -878,16 +923,36 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
             ))
           )
 
-          /* 功能捷徑：移到下方置中、縮小尺寸，避免遮蔽照片中的人物 */
-          , React.createElement('button', {
-            onClick: () => setShowGlobalMenu(true),
-            className: "absolute flex items-center gap-1.5 rounded-full shadow-lg px-3 py-1.5"       ,
-            style: { left: "50%", bottom: 10, transform: "translateX(-50%)", background: C.wine, border: `1.5px solid white` },}
-
-            , React.createElement('span', { className: "flex items-center justify-center rounded-full"   , style: { width: 22, height: 22, background: "white" },}
-              , React.createElement(ClipboardList, { size: 12, color: C.wine,} )
+          /* 總功能表：放大約10%、單行名稱、能量光芒耀動；右側顯示日期＋節氣 */
+          , React.createElement('div', {
+              className: "absolute flex items-center gap-2",
+              style: { left: "50%", bottom: 10, transform: "translateX(-50%)", zIndex: 12, whiteSpace: "nowrap" },
+            }
+            , React.createElement('button', {
+                onClick: () => setShowGlobalMenu(true),
+                className: "total-menu-energy flex items-center gap-1.5 rounded-full shadow-lg",
+                style: { padding: "6.6px 13.2px", background: C.wine, border: `1.5px solid white`, minHeight: 38 },
+              }
+              , React.createElement('span', { className: "flex items-center justify-center rounded-full", style: { width: 24, height: 24, background: "white" } },
+                  React.createElement(ClipboardList, { size: 13, color: C.wine })
+                )
+              , React.createElement('span', { style: { color: "white", fontFamily: "Inter", fontWeight: 800, whiteSpace: "nowrap", fontSize: 12.1, letterSpacing: "0.01em" } }, "總功能表")
             )
-            , React.createElement('span', { style: { color: "white", fontFamily: "Inter", fontWeight: 700, whiteSpace: "nowrap", fontSize: 11 },}, "功能表")
+            , React.createElement('div', {
+                className: "home-solar-info flex flex-col items-start justify-center rounded-lg px-2 py-1",
+                style: {
+                  color: "#FF5A36",
+                  background: "rgba(28,20,16,.72)",
+                  border: "1px solid rgba(255,126,72,.60)",
+                  minHeight: 38,
+                  lineHeight: 1.05,
+                  fontFamily: "Inter",
+                  fontWeight: 900,
+                },
+              }
+              , React.createElement('span', { style: { fontSize: 10.5, letterSpacing: "0.02em" } }, `${homeDateParts.month}/${homeDateParts.day}`)
+              , React.createElement('span', { style: { fontSize: 12, marginTop: 2 } }, homeDateParts.term || "節氣")
+            )
           )
         )
 
