@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.97・功能10打卡+異常提醒+節氣路線";
+const APP_VERSION = "V3.8・無打卡提示・節氣橘標路線";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -449,7 +449,7 @@ const STUB_MODULES = [
   { icon: Package, label: "7. 耗材使用\n報表檢視", key: "materials" },
   { icon: TreePine, label: "8. 果樹履歷（樹齡 / 高度 / 節間）" },
   { icon: Droplets, label: "9. 環境數據紀錄" },
-  { icon: LogIn, label: "10. 上下班打卡", key: "attendance" },
+  { icon: Video, label: "10. 影音生產與推播" },
 ];
 
 // 分區間電路圖風格走線：直角轉折(Manhattan routing)，座標對應ZONES的x/y百分比
@@ -461,1382 +461,6 @@ const MAP_TRACES = [
   "M42,45 L24,45 L24,65",
 ];
 
-const ATTEND_SLOTS = [
-  { key: "amIn", label: "第一輪上班" },
-  { key: "amOut", label: "第一輪下班" },
-  { key: "pmIn", label: "第二輪上班" },
-  { key: "pmOut", label: "第二輪下班" },
-];
-const DEFAULT_LEAVE_TYPES = ["病假", "事假", "特休", "彈性工時", "其他"];
-const ATTEND_COLORS = {
-  panelBorder: "#2E5FA3",
-  panelBg: "#F3F8FC",
-  inBg: "#DCEFE0", inText: "#2E8577", inBorder: "#2E857740",
-  outBg: "#F7DCE2", outText: "#B5455B", outBorder: "#B5455B40",
-  leaveBg: "#FFFFFF", leaveText: "#2B2119", leaveBorder: "#E4D9C8",
-  otBg: "#FFF3D6", otText: "#B8860B", otBorder: "#B8860B40",
-  tabOn: "#2E5FA3",
-};
-function taipeiDateKey(d) {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d || new Date());
-  const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-function taipeiTimeHHMM(d) {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d || new Date());
-  const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
-  return `${get("hour")}:${get("minute")}`;
-}
-function minutesOf(hhmm) {
-  if (!hhmm || typeof hhmm !== "string") return null;
-  const m = hhmm.match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-}
-function hoursBetween(a, b) {
-  const ma = minutesOf(a), mb = minutesOf(b);
-  if (ma == null || mb == null || mb < ma) return null;
-  return Math.round(((mb - ma) / 60) * 100) / 100;
-}
-function emptyBlock() {
-  return {
-    punches: { amIn: null, amOut: null, pmIn: null, pmOut: null },
-    geo: { amIn: null, amOut: null, pmIn: null, pmOut: null },
-  };
-}
-function emptyAttendance(personId, date) {
-  return {
-    date, personId, personName: "",
-    // 正常上班日與加班工時分開存，打卡方式相同（四段）但結構獨立
-    regular: emptyBlock(),
-    overtime: emptyBlock(),
-    leave: null,
-    abnormalities: [],
-    updatedAt: Date.now(),
-  };
-}
-// 相容舊版：若只有 punches / clockInAt 則轉成 regular
-function normalizeAttendance(raw, personId, date) {
-  if (!raw) return emptyAttendance(personId, date);
-  if (raw.regular || raw.overtime) {
-    return {
-      ...emptyAttendance(personId, date),
-      ...raw,
-      regular: raw.regular || emptyBlock(),
-      overtime: raw.overtime || emptyBlock(),
-      leave: raw.leave || null,
-    };
-  }
-  const base = emptyAttendance(personId, date);
-  if (raw.punches) {
-    base.regular = { punches: { ...emptyBlock().punches, ...raw.punches }, geo: { ...emptyBlock().geo, ...(raw.geo || {}) } };
-  } else if (raw.clockInAt || raw.clockOutAt) {
-    // 舊面板只有上下班字串
-    const inT = raw.clockInAt && String(raw.clockInAt).includes(" ") ? String(raw.clockInAt).split(" ")[1] : null;
-    const outT = raw.clockOutAt && String(raw.clockOutAt).includes(" ") ? String(raw.clockOutAt).split(" ")[1] : null;
-    base.regular.punches.amIn = inT;
-    base.regular.punches.pmOut = outT;
-  }
-  if (raw.leave) base.leave = raw.leave;
-  base.personName = raw.personName || "";
-  return base;
-}
-async function getPhoneGeo() {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve({ error: "此瀏覽器不支援定位" });
-      return;
-    }
-    // 非安全來源（如 content://、部分 file://）瀏覽器常直接封鎖定位
-    try {
-      if (typeof window.isSecureContext === "boolean" && !window.isSecureContext) {
-        resolve({ error: "目前頁面非安全連線，無法向系統申請定位。請改用 HTTPS 網址開啟本系統" });
-        return;
-      }
-    } catch (e) {}
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({
-        lat: +pos.coords.latitude.toFixed(6),
-        lon: +pos.coords.longitude.toFixed(6),
-        accuracy: Math.round(pos.coords.accuracy || 0),
-        at: Date.now(),
-      }),
-      (err) => {
-        const map = {
-          1: "定位權限被拒絕。請到 Chrome→設定→隱私權和安全性→網站設定→位置，允許本站或清除後重試",
-          2: "目前無法取得位置（訊號不佳或手機定位關閉）",
-          3: "定位逾時，請到空曠處再試",
-        };
-        resolve({ error: map[err && err.code] || "定位失敗" });
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  });
-}
-function calcBlockHours(block) {
-  const p = (block && block.punches) || {};
-  const am = hoursBetween(p.amIn, p.amOut);
-  const pm = hoursBetween(p.pmIn, p.pmOut);
-  const total = (am != null || pm != null) ? +(((am || 0) + (pm || 0)).toFixed(2)) : null;
-  return {
-    am: am != null ? am + "h" : "—",
-    pm: pm != null ? pm + "h" : "—",
-    total: total != null ? total + "h" : "—",
-    totalNum: total,
-  };
-}
-
-function AttendanceMenu({ onBack, role, loggedInId }) {
-  const canEditTypes = role === "designer" || role === "manager" || role === "founder";
-  // V5.1+ 主管模式：帳號身分字母 A / B / C 可查看並修改個人出勤紀錄。
-  const supervisorLetter = String(loggedInId || "").trim().charAt(0).toUpperCase();
-  const canSupervisorEdit = ["A", "B", "C"].includes(supervisorLetter);
-  const canViewAll = canSupervisorEdit;
-  const [mode, setMode] = useState("regular"); // regular | overtime | leave | records | settings
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [todayRec, setTodayRec] = useState(null);
-  const [pref, setPref] = useState({ restStart: "12:00", restEnd: "13:00" });
-  const [prefDraft, setPrefDraft] = useState({ restStart: "12:00", restEnd: "13:00" });
-  const [leaveTypes, setLeaveTypes] = useState(DEFAULT_LEAVE_TYPES.slice());
-  const [newLeaveType, setNewLeaveType] = useState("");
-  const [leaveType, setLeaveType] = useState("");
-  const [leaveNote, setLeaveNote] = useState("");
-  const [leaveHours, setLeaveHours] = useState("");
-  const [myList, setMyList] = useState([]);
-  const [allList, setAllList] = useState([]);
-  const [people, setPeople] = useState([]);
-  const [supervisorMode, setSupervisorMode] = useState(false);
-  const [supervisorPersonId, setSupervisorPersonId] = useState("");
-  const [supervisorList, setSupervisorList] = useState([]);
-  const [supervisorLoading, setSupervisorLoading] = useState(false);
-  const [supervisorZoom, setSupervisorZoom] = useState(1);
-  const [editAttendance, setEditAttendance] = useState(null);
-  const [editAttendanceDraft, setEditAttendanceDraft] = useState(null);
-  const dateKey = taipeiDateKey();
-  const _nowAtt = new Date();
-  const [recYear, setRecYear] = useState(_nowAtt.getFullYear());
-  const [recMonth, setRecMonth] = useState(_nowAtt.getMonth() + 1);
-  const ATTEND_ABNORMAL_HOURS = 7;
-  const pendingAbnormal = (rec) => ((rec && rec.abnormalities) || []).filter((x) => x && x.status === "pending");
-  const confirmResolvedAbnormalities = (rec, supervisorId) => {
-    const next = { ...rec };
-    next.abnormalities = ((rec && rec.abnormalities) || []).map((x) => {
-      if (!x || x.status !== "pending") return x;
-      const punches = (((next[x.kind] || {}).punches) || {});
-      const outTime = punches[x.outSlot];
-      return outTime ? { ...x, status:"confirmed", confirmedBy:supervisorId, confirmedAt:Date.now(), confirmedOutTime:outTime } : x;
-    });
-    return next;
-  };
-
-  const loadToday = async () => {
-    if (!loggedInId) return;
-    try {
-      const res = await window.storage.get(`attendance:${loggedInId}:${dateKey}`);
-      const raw = res ? JSON.parse(res.value) : null;
-      setTodayRec(normalizeAttendance(raw, loggedInId, dateKey));
-    } catch (e) { setTodayRec(emptyAttendance(loggedInId, dateKey)); }
-  };
-  const loadPref = async () => {
-    if (!loggedInId) return;
-    try {
-      const res = await window.storage.get(`attendancePref:${loggedInId}`);
-      if (res) {
-        const p = JSON.parse(res.value);
-        setPref(p);
-        setPrefDraft({ restStart: p.restStart || "12:00", restEnd: p.restEnd || "13:00" });
-      }
-    } catch (e) {}
-  };
-  const loadLeaveTypes = async () => {
-    try {
-      const res = await window.storage.get("attendanceLeaveTypes");
-      if (res) {
-        const arr = JSON.parse(res.value);
-        if (Array.isArray(arr) && arr.length) setLeaveTypes(arr);
-      }
-    } catch (e) {}
-  };
-  const loadMine = async () => {
-    if (!loggedInId) return;
-    try {
-      const listRes = await window.storage.list(`attendance:${loggedInId}:`);
-      const keys = (listRes && listRes.keys) || [];
-      const rows = await runWithLimit(keys, 6, async (k) => {
-        const full = k.startsWith("attendance:") ? k : `attendance:${k}`;
-        try {
-          const res = await window.storage.get(full);
-          if (!res) return null;
-          const raw = JSON.parse(res.value);
-          return normalizeAttendance(raw, loggedInId, raw.date || full.split(":").pop());
-        } catch (e) { return null; }
-      });
-      setMyList(rows.filter(Boolean).sort((a, b) => (a.date < b.date ? 1 : -1)));
-    } catch (e) { setMyList([]); }
-  };
-  const loadAll = async () => {
-    if (!canViewAll) return;
-    try {
-      const listRes = await window.storage.list("attendance:");
-      const keys = ((listRes && listRes.keys) || []).filter((k) => k.includes(dateKey));
-      const rows = await runWithLimit(keys, 6, async (k) => {
-        const full = k.startsWith("attendance:") ? k : `attendance:${k}`;
-        try {
-          const res = await window.storage.get(full);
-          if (!res) return null;
-          const raw = JSON.parse(res.value);
-          return normalizeAttendance(raw, raw.personId, dateKey);
-        } catch (e) { return null; }
-      });
-      setAllList(rows.filter(Boolean).sort((a, b) => (a.personId || "").localeCompare(b.personId || "")));
-    } catch (e) { setAllList([]); }
-  };
-
-  const attendancePeople = (() => {
-    const merged = [...people];
-    FOUNDER_ACCOUNTS.forEach((f) => {
-      if (!merged.some((p) => p.id === f.id)) {
-        merged.push({ id: f.id, name: f.name || f.id, role: f.role, status: "active" });
-      }
-    });
-    return merged.filter((p) => p && p.id).sort((a, b) => a.id.localeCompare(b.id));
-  })();
-
-  const supervisorZoomOut = () => setSupervisorZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
-  const supervisorZoomIn = () => setSupervisorZoom((z) => Math.min(1.5, Math.round((z + 0.1) * 10) / 10));
-  const supervisorZoomReset = () => setSupervisorZoom(1);
-  const printSupervisorAttendance = () => {
-    setTimeout(() => window.print(), 80);
-  };
-
-
-  const ensureXlsxLibrary = async () => {
-    if (window.XLSX) return window.XLSX;
-    if (window.__blueRibbonXlsxPromise) return window.__blueRibbonXlsxPromise;
-    window.__blueRibbonXlsxPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-      script.async = true;
-      script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error("XLSX library unavailable"));
-      script.onerror = () => reject(new Error("無法載入 Excel 元件，請確認網路連線"));
-      document.head.appendChild(script);
-    });
-    return window.__blueRibbonXlsxPromise;
-  };
-
-  const exportAttendanceExcel = async ({ personId, personName, rows, sumReg, sumOver7, sumOt }) => {
-    try {
-      const XLSX = await ensureXlsxLibrary();
-      const timeText = (p) => `${(p && p.amIn) || "—"}-${(p && p.amOut) || "—"} / ${(p && p.pmIn) || "—"}-${(p && p.pmOut) || "—"}`;
-
-      const data = [
-        ["出勤紀錄表"],
-        [`人員：${personName || personId || ""}`, `代號：${personId || ""}`, `${recYear}年${recMonth}月`],
-        [],
-        ["日", "正常上班時間（第1輪＋第2輪）", "加班時間", "正常上班工時（第1輪＋第2輪）", "（1＋2）超過7小時", "加班工時"],
-      ];
-
-      rows.forEach((r) => {
-        const rp = r.rp || (r.rec && r.rec.regular && r.rec.regular.punches) || {};
-        const op = r.op || (r.rec && r.rec.overtime && r.rec.overtime.punches) || {};
-        const hasAny = r.has !== undefined ? r.has : !!r.rec;
-        const normal = hasAny ? timeText(rp) : "—";
-        const overtime = (op.amIn || op.amOut || op.pmIn || op.pmOut) ? timeText(op) : "—";
-        const regHours = r.rh && r.rh.totalNum != null ? Number(r.rh.totalNum) : "";
-        const over7 = Number(r.over7 || 0);
-        const otHours = r.oh && r.oh.totalNum != null ? Number(r.oh.totalNum) : "";
-        data.push([r.d, normal, overtime, regHours, over7, otHours]);
-      });
-
-      data.push(["合計", "", "", Number(sumReg || 0), Number(sumOver7 || 0), Number(sumOt || 0)]);
-
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      ws["!cols"] = [
-        { wch: 6 }, { wch: 32 }, { wch: 28 }, { wch: 20 }, { wch: 18 }, { wch: 14 }
-      ];
-      ws["!merges"] = [XLSX.utils.decode_range("A1:F1")];
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "出勤紀錄");
-      XLSX.writeFile(
-        wb,
-        `出勤紀錄_${personName || personId || "人員"}_${recYear}-${String(recMonth).padStart(2, "0")}.xlsx`,
-        { compression: true }
-      );
-    } catch (e) {
-      console.error("xlsx export failed", e);
-      alert(e && e.message ? e.message : "Excel 匯出失敗，請稍後再試");
-    }
-  };
-
-  const loadSupervisorPerson = async (personId = supervisorPersonId) => {
-    if (!canSupervisorEdit || !personId) { setSupervisorList([]); return; }
-    setSupervisorLoading(true);
-    try {
-      const listRes = await window.storage.list(`attendance:${personId}:`);
-      const keys = (listRes && listRes.keys) || [];
-      const rows = await runWithLimit(keys, 6, async (k) => {
-        const full = k.startsWith("attendance:") ? k : `attendance:${k}`;
-        try {
-          const res = await window.storage.get(full);
-          if (!res) return null;
-          const raw = JSON.parse(res.value);
-          return normalizeAttendance(raw, personId, raw.date || full.split(":").pop());
-        } catch (_e) { return null; }
-      });
-      setSupervisorList(rows.filter(Boolean).sort((a, b) => (a.date < b.date ? 1 : -1)));
-    } catch (_e) {
-      setSupervisorList([]);
-    }
-    setSupervisorLoading(false);
-  };
-
-  const openAttendanceEditor = (personId, date, existing) => {
-    if (!canSupervisorEdit) return;
-    const person = attendancePeople.find((p) => p.id === personId);
-    const base = normalizeAttendance(existing || emptyAttendance(personId, date), personId, date);
-    const draft = JSON.parse(JSON.stringify(base));
-    draft.personId = personId;
-    draft.personName = (person && person.name) || base.personName || personId;
-    draft.date = date;
-    setEditAttendance({ personId, date });
-    setEditAttendanceDraft(draft);
-  };
-
-  const setEditPunch = (kind, slotKey, value) => {
-    setEditAttendanceDraft((cur) => {
-      if (!cur) return cur;
-      const next = JSON.parse(JSON.stringify(cur));
-      if (!next[kind]) next[kind] = emptyBlock();
-      if (!next[kind].punches) next[kind].punches = emptyBlock().punches;
-      next[kind].punches[slotKey] = value || null;
-      return next;
-    });
-  };
-
-  const setEditLeaveField = (field, value) => {
-    setEditAttendanceDraft((cur) => {
-      if (!cur) return cur;
-      const next = JSON.parse(JSON.stringify(cur));
-      if (!next.leave) next.leave = { type: "", note: "", hours: undefined, at: "" };
-      next.leave[field] = value;
-      return next;
-    });
-  };
-
-  const clearEditLeave = () => {
-    setEditAttendanceDraft((cur) => cur ? { ...cur, leave: null } : cur);
-  };
-
-  const saveSupervisorAttendance = async () => {
-    if (!canSupervisorEdit || !editAttendanceDraft) return;
-    setBusy(true);
-    try {
-      let next = {
-        ...editAttendanceDraft,
-        personId: editAttendanceDraft.personId,
-        date: editAttendanceDraft.date,
-        updatedAt: Date.now(),
-        supervisorEditedBy: loggedInId,
-        supervisorEditedAt: Date.now(),
-      };
-      next = confirmResolvedAbnormalities(next, loggedInId);
-      await window.storage.set(`attendance:${next.personId}:${next.date}`, JSON.stringify(next));
-      setEditAttendance(null);
-      setEditAttendanceDraft(null);
-      await loadSupervisorPerson(next.personId);
-      if (next.personId === loggedInId) await loadMine();
-      setMsg(`已更新 ${next.personName || next.personId}・${next.date} 出勤紀錄`);
-    } catch (_e) {
-      setMsg("出勤紀錄修改失敗，請確認網路後再試");
-    }
-    setBusy(false);
-  };
-
-
-  useEffect(() => {
-    loadToday();
-    loadPref();
-    loadLeaveTypes();
-    loadAllPeople().then(setPeople).catch(() => setPeople([]));
-  }, [loggedInId]);
-  useEffect(() => {
-    if (mode === "records") { loadMine(); if (canViewAll) loadAll(); }
-  }, [mode]);
-  useEffect(() => {
-    if (mode === "records" && supervisorMode && canSupervisorEdit && supervisorPersonId) {
-      loadSupervisorPerson(supervisorPersonId);
-    }
-  }, [mode, supervisorMode, supervisorPersonId, recYear, recMonth]);
-
-  const activeBlock = todayRec && (mode === "overtime" ? todayRec.overtime : todayRec.regular);
-  const nextSlot = (() => {
-    const p = (activeBlock && activeBlock.punches) || {};
-    for (const s of ATTEND_SLOTS) {
-      if (!p[s.key]) return s;
-    }
-    return null;
-  })();
-
-  const saveRec = async (next) => {
-    await window.storage.set(`attendance:${loggedInId}:${dateKey}`, JSON.stringify(next));
-    setTodayRec(next);
-  };
-
-  const doPunch = async (kind) => {
-    // kind: "regular" | "overtime"
-    if (!loggedInId) return;
-    const block = kind === "overtime" ? (todayRec && todayRec.overtime) : (todayRec && todayRec.regular);
-    const punches = (block && block.punches) || emptyBlock().punches;
-    let slot = null;
-    for (const s of ATTEND_SLOTS) {
-      if (!punches[s.key]) { slot = s; break; }
-    }
-    if (!slot) { setMsg(kind === "overtime" ? "今日加班四段已打滿" : "今日正常班四段已打滿"); return; }
-    const candidateTime = taipeiTimeHHMM();
-    if (kind === "regular" && slot.key === "pmIn" && punches.amOut) {
-      const firstOut = minutesOf(punches.amOut);
-      const secondIn = minutesOf(candidateTime);
-      const gap = (firstOut != null && secondIn != null) ? (secondIn - firstOut) : null;
-      if (gap == null || gap < 30) {
-        const remain = gap == null ? 30 : Math.max(1, 30 - gap);
-        setMsg(`第二輪上班須距第一輪下班至少30分鐘，目前尚需約${remain}分鐘`);
-        return;
-      }
-    }
-    setBusy(true);
-    setMsg("正在取得定位…");
-    try {
-      const geo = await getPhoneGeo();
-      const geoOk = geo && geo.lat != null && !geo.error;
-      const time = candidateTime;
-      const name = (people.find((p) => p.id === loggedInId) || {}).name || loggedInId;
-      const base = normalizeAttendance(todayRec, loggedInId, dateKey);
-      const prevBlock = kind === "overtime" ? base.overtime : base.regular;
-      const nextBlock = {
-        punches: { ...prevBlock.punches, [slot.key]: time },
-        geo: { ...prevBlock.geo, [slot.key]: geoOk ? geo : (geo && geo.error ? { error: geo.error } : null) },
-      };
-      const next = {
-        ...base,
-        personId: loggedInId,
-        personName: name,
-        date: dateKey,
-        [kind]: nextBlock,
-        updatedAt: Date.now(),
-      };
-      await saveRec(next);
-      const label = (kind === "overtime" ? "加班・" : "正常班・") + slot.label;
-      if (geoOk) setMsg(`${label} ${time}（GPS ${geo.lat}, ${geo.lon} ±${geo.accuracy}m）`);
-      else setMsg(`${label} ${time}（${(geo && geo.error) || "無定位"}，已完成打卡）`);
-    } catch (e) {
-      setMsg("打卡失敗，請確認網路後再試");
-    }
-    setBusy(false);
-  };
-
-  const submitLeave = async () => {
-    if (!loggedInId || !leaveType) { setMsg("請選擇假別"); return; }
-    setBusy(true);
-    try {
-      const name = (people.find((p) => p.id === loggedInId) || {}).name || loggedInId;
-      const base = normalizeAttendance(todayRec, loggedInId, dateKey);
-      const next = {
-        ...base,
-        personId: loggedInId,
-        personName: name,
-        date: dateKey,
-        leave: {
-          type: leaveType,
-          note: leaveNote || "",
-          hours: leaveType === "彈性工時" ? (parseFloat(leaveHours) || 0) : undefined,
-          at: taipeiTimeHHMM(),
-        },
-        updatedAt: Date.now(),
-      };
-      await saveRec(next);
-      setMsg(`已登記請假：${leaveType}${leaveType === "彈性工時" ? `（${leaveHours || 0}小時）` : ""}`);
-    } catch (e) { setMsg("請假登記失敗"); }
-    setBusy(false);
-  };
-
-  const clearLeave = async () => {
-    if (!loggedInId) return;
-    setBusy(true);
-    try {
-      const base = normalizeAttendance(todayRec, loggedInId, dateKey);
-      const next = { ...base, leave: null, updatedAt: Date.now() };
-      await saveRec(next);
-      setMsg("已取消今日請假");
-    } catch (e) { setMsg("取消失敗"); }
-    setBusy(false);
-  };
-
-  const savePref = async () => {
-    if (!loggedInId) return;
-    setBusy(true);
-    try {
-      const payload = { restStart: prefDraft.restStart || "12:00", restEnd: prefDraft.restEnd || "13:00", updatedAt: Date.now() };
-      await window.storage.set(`attendancePref:${loggedInId}`, JSON.stringify(payload));
-      setPref(payload);
-      setMsg("休息時段已儲存");
-    } catch (e) { setMsg("儲存失敗"); }
-    setBusy(false);
-  };
-
-  const saveLeaveTypes = async (arr) => {
-    setBusy(true);
-    try {
-      await window.storage.set("attendanceLeaveTypes", JSON.stringify(arr));
-      setLeaveTypes(arr);
-      setMsg("假別清單已更新");
-    } catch (e) { setMsg("假別儲存失敗"); }
-    setBusy(false);
-  };
-  const addLeaveType = () => {
-    const t = (newLeaveType || "").trim();
-    if (!t) return;
-    if (leaveTypes.includes(t)) { setMsg("此假別已存在"); return; }
-    const next = [...leaveTypes, t];
-    setNewLeaveType("");
-    saveLeaveTypes(next);
-  };
-  const removeLeaveType = (t) => {
-    if (leaveTypes.length <= 1) { setMsg("至少保留一種假別"); return; }
-    saveLeaveTypes(leaveTypes.filter((x) => x !== t));
-  };
-
-  const modeBtn = (id, label, colors) => React.createElement('button', {
-    key: id,
-    onClick: () => { setMsg(""); setMode(id); },
-    className: "flex-1 py-2.5 rounded-xl text-xs flex items-center justify-center",
-    style: {
-      background: mode === id ? (colors ? colors.bg : ATTEND_COLORS.tabOn) : C.cream,
-      color: mode === id ? (colors ? colors.text : "white") : C.ink,
-      border: `1px solid ${mode === id ? (colors ? colors.border : ATTEND_COLORS.tabOn) : C.line}`,
-      fontFamily: "Inter", fontWeight: 700, textAlign: "center",
-    },
-  }, label);
-
-  const renderPunchPanel = (kind) => {
-    const block = todayRec && (kind === "overtime" ? todayRec.overtime : todayRec.regular);
-    const h = calcBlockHours(block);
-    const title = kind === "overtime" ? "加班工時打卡" : "正常上班打卡";
-    const accent = kind === "overtime"
-      ? { bg: ATTEND_COLORS.otBg, text: ATTEND_COLORS.otText, border: ATTEND_COLORS.otBorder }
-      : { bg: ATTEND_COLORS.inBg, text: ATTEND_COLORS.inText, border: ATTEND_COLORS.inBorder };
-    const p = (block && block.punches) || {};
-    const gmap = (block && block.geo) || {};
-    let slot = null;
-    for (const s of ATTEND_SLOTS) { if (!p[s.key]) { slot = s; break; } }
-    return React.createElement('div', {
-      className: "rounded-2xl p-4 flex flex-col gap-3",
-      style: { background: ATTEND_COLORS.panelBg, border: `2px solid ${ATTEND_COLORS.panelBorder}` },
-    },
-      React.createElement('div', { className: "flex items-center justify-between" },
-        React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 800, fontSize: 15, color: ATTEND_COLORS.panelBorder } }, "🕐 ", title),
-        React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" } }, dateKey, " ", taipeiTimeHHMM())
-      ),
-      React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } },
-        kind === "overtime"
-          ? "加班獨立記錄；可使用第一輪、第二輪上下班，不併入正常班工時。"
-          : "正常班分第一輪與第二輪；兩輪不限制上下午與時長，第一輪下班至第二輪上班至少30分鐘。"
-      ),
-      ATTEND_SLOTS.map((s) => {
-        const t = p[s.key];
-        const g = gmap[s.key];
-        const isNext = slot && slot.key === s.key;
-        return React.createElement('div', {
-          key: s.key,
-          className: "flex items-center justify-between px-3 py-2.5 rounded-xl",
-          style: {
-            background: t ? accent.bg : isNext ? "#FFFFFF" : C.paper,
-            border: `1px solid ${t ? accent.border : isNext ? ATTEND_COLORS.panelBorder : C.line}`,
-          },
-        },
-          React.createElement('div', { className: "flex flex-col gap-0.5 min-w-0" },
-            React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 14, color: C.ink } }, s.label),
-            g && g.lat != null && React.createElement('span', { className: "text-xs truncate", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" } },
-              g.lat, ", ", g.lon, " ±", g.accuracy, "m"
-            ),
-            g && g.error && React.createElement('span', { className: "text-xs truncate", style: { color: C.alert, fontFamily: "Inter" } }, g.error)
-          ),
-          React.createElement('span', { style: { fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 16, color: t ? accent.text : C.inkSoft } }, t || "—")
-        );
-      }),
-      React.createElement('div', { className: "flex justify-between text-xs px-1", style: { color: C.inkSoft, fontFamily: "Inter" } },
-        React.createElement('span', null, "第一輪 ", h.am),
-        React.createElement('span', null, "第二輪 ", h.pm),
-        React.createElement('span', { style: { fontWeight: 700, color: accent.text } }, "合計 ", h.total)
-      ),
-      React.createElement('button', {
-        onClick: () => doPunch(kind),
-        disabled: busy || !slot || !loggedInId,
-        className: "w-full py-3.5 rounded-xl text-base flex items-center justify-center",
-        style: {
-          background: slot ? (kind === "overtime" ? ATTEND_COLORS.otText : ATTEND_COLORS.panelBorder) : C.field,
-          color: "white", fontFamily: "Inter", fontWeight: 800, opacity: busy ? 0.6 : 1, textAlign: "center",
-        },
-      }, busy ? "定位／寫入中…" : (slot ? `打卡：${slot.label}` : "今日此類已打滿四次"))
-    );
-  };
-
-  const summarizeRec = (rec) => {
-    const rh = calcBlockHours(rec.regular);
-    const oh = calcBlockHours(rec.overtime);
-    const leave = rec.leave ? (`假・${rec.leave.type}`) : "";
-    return { rh, oh, leave };
-  };
-
-  // 回上一頁：在打卡模組內先退回「正常上班」；已在主分頁才離開模組
-  const handleStepBack = () => {
-    if (supervisorMode) {
-      setSupervisorMode(false);
-      setMsg("");
-      setMode("records");
-      return;
-    }
-    if (mode !== "regular") {
-      setMsg("");
-      setMode("regular");
-      return;
-    }
-    onBack && onBack();
-  };
-
-  return (
-    React.createElement(React.Fragment, null,
-      React.createElement('style', null, `
-        .attendance-supervisor-print { display: none; }
-        @media print {
-          @page { size: A4 portrait; margin: 4mm; }
-          html, body { width: 210mm !important; height: 297mm !important; margin: 0 !important; }
-          body * { visibility: hidden !important; }
-          .attendance-supervisor-print,
-          .attendance-supervisor-print * { visibility: visible !important; }
-          .attendance-supervisor-print {
-            display: block !important;
-            position: absolute !important;
-            left: 4mm !important;
-            top: 4mm !important;
-            width: 202mm !important;
-            height: 289mm !important;
-            max-height: 289mm !important;
-            overflow: hidden !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            background: white !important;
-            color: #111 !important;
-            font-family: Inter, sans-serif !important;
-            box-sizing: border-box !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          .attendance-print-title { text-align: center; margin: 0 0 1.5mm; }
-          .attendance-print-main { font-size: 16pt; font-weight: 800; line-height: 1; }
-          .attendance-print-sub { font-size: 12pt; margin-top: 0.6mm; line-height: 1; }
-          .attendance-print-table {
-            width: 100% !important;
-            max-width: 100% !important;
-            border-collapse: collapse;
-            table-layout: fixed;
-            font-size: 12pt;
-            line-height: 0.92;
-            transform: scale(0.70);
-            transform-origin: top left;
-            width: 142.857% !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-          .attendance-print-table th,
-          .attendance-print-table td {
-            border: 0.18mm solid #555;
-            padding: 0.38mm 0.22mm;
-            text-align: center;
-            vertical-align: middle;
-            word-break: normal;
-            overflow-wrap: normal;
-          }
-          .attendance-print-table th { background: #f2f2f2 !important; font-weight: 800; }
-          .attendance-print-table th:nth-child(1), .attendance-print-table td:nth-child(1) { width: 5%; }
-          .attendance-print-table th:nth-child(2), .attendance-print-table td:nth-child(2) { width: 31%; white-space: nowrap; }
-          .attendance-print-table th:nth-child(3), .attendance-print-table td:nth-child(3) { width: 27%; white-space: nowrap; }
-          .attendance-print-table th:nth-child(4), .attendance-print-table td:nth-child(4) { width: 13%; }
-          .attendance-print-table th:nth-child(5), .attendance-print-table td:nth-child(5) { width: 12%; }
-          .attendance-print-table th:nth-child(6), .attendance-print-table td:nth-child(6) { width: 12%; }
-          .attendance-print-total td { font-weight: 800; background: #f7f7f7 !important; }
-          .attendance-print-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
-        }
-      `),
-      React.createElement('div', { className: "min-h-screen flex flex-col", style: { background: C.cream } },
-      React.createElement(NavBar, { backLabel: "回功能表", onBack: handleStepBack }),
-      React.createElement('div', { className: "max-w-md mx-auto w-full px-4 py-4 flex flex-col gap-3 flex-1",
-        style: {
-          paddingBottom: 130,
-          minHeight: "100dvh",
-          height: "auto",
-          overflow: "visible",
-          touchAction: "pan-y",
-          WebkitOverflowScrolling: "touch",
-          overscrollBehaviorY: "auto",
-        } },
-        !supervisorMode && React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 20, color: C.ink } }, "上下班打卡"),
-        !supervisorMode && React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } },
-          "正常班與加班分開記錄・請假可編輯假別・打卡附手機定位"
-        ),
-        !supervisorMode && !loggedInId && React.createElement('div', { className: "text-sm px-3 py-2 rounded-lg text-center", style: { background: `${C.alert}15`, color: C.alert, fontFamily: "Inter" } },
-          "請先登入後再打卡"
-        ),
-
-        !supervisorMode && React.createElement('div', { className: "grid grid-cols-2 gap-2" },
-          modeBtn("regular", "正常上班", { bg: ATTEND_COLORS.inBg, text: ATTEND_COLORS.inText, border: ATTEND_COLORS.inBorder }),
-          modeBtn("overtime", "加班工時", { bg: ATTEND_COLORS.otBg, text: ATTEND_COLORS.otText, border: ATTEND_COLORS.otBorder }),
-          modeBtn("leave", "請假", { bg: ATTEND_COLORS.leaveBg, text: ATTEND_COLORS.leaveText, border: ATTEND_COLORS.leaveBorder }),
-          modeBtn("records", "出勤紀錄", { bg: "#E8F1FA", text: ATTEND_COLORS.panelBorder, border: ATTEND_COLORS.panelBorder + "40" }),
-          modeBtn("settings", "設定", { bg: C.cream, text: C.ink, border: C.line }),
-          canSupervisorEdit && React.createElement('button', {
-            onClick: () => {
-              setSupervisorMode(true);
-              setMode("records");
-              setMsg("");
-              if (!supervisorPersonId) {
-                const first = attendancePeople[0];
-                if (first) setSupervisorPersonId(first.id);
-              }
-            },
-            className: "py-2.5 rounded-xl text-xs flex items-center justify-center",
-            style: {
-              background: `${C.wine}12`,
-              color: C.wine,
-              border: `1px solid ${C.wine}`,
-              fontFamily: "Inter", fontWeight: 800, textAlign: "center",
-            },
-          }, "主管模式")
-        ),
-
-        !supervisorMode && msg && React.createElement('div', { className: "text-xs px-3 py-2 rounded-lg text-center", style: { background: `${C.tableColor}15`, color: C.tableColor, fontFamily: "Inter" } }, msg),
-
-        mode === "regular" && loggedInId && renderPunchPanel("regular"),
-        mode === "overtime" && loggedInId && renderPunchPanel("overtime"),
-
-        mode === "leave" && loggedInId && React.createElement('div', {
-          className: "rounded-2xl p-4 flex flex-col gap-3",
-          style: { background: ATTEND_COLORS.panelBg, border: `2px solid ${ATTEND_COLORS.panelBorder}` },
-        },
-          React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 800, fontSize: 15, color: ATTEND_COLORS.panelBorder } }, "請假登記・", dateKey),
-          todayRec && todayRec.leave && React.createElement('div', { className: "px-3 py-2 rounded-lg text-sm", style: { background: ATTEND_COLORS.otBg, color: ATTEND_COLORS.otText, fontFamily: "Inter", fontWeight: 600 } },
-            "今日已請假：", todayRec.leave.type,
-            todayRec.leave.hours != null ? `（${todayRec.leave.hours}小時）` : "",
-            todayRec.leave.note ? `・${todayRec.leave.note}` : ""
-          ),
-          React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "選擇假別"),
-          React.createElement('div', { className: "flex flex-wrap gap-1.5" },
-            leaveTypes.map((t) => React.createElement('button', {
-              key: t,
-              onClick: () => setLeaveType(t),
-              className: "px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-center",
-              style: {
-                background: leaveType === t ? "#D4A017" : C.cream,
-                color: leaveType === t ? "white" : C.ink,
-                border: `1px solid ${leaveType === t ? "#D4A017" : C.line}`,
-                fontFamily: "Inter", fontWeight: 600, textAlign: "center",
-              },
-            }, t))
-          ),
-          leaveType === "彈性工時" && React.createElement('input', {
-            type: "number", value: leaveHours, onChange: (e) => setLeaveHours(e.target.value),
-            placeholder: "正數＝多的時數，負數＝欠的時數",
-            className: "w-full px-3 py-2.5 rounded-lg text-sm",
-            style: { border: `1px solid ${C.line}`, fontFamily: "Inter", background: C.paper },
-          }),
-          React.createElement('input', {
-            value: leaveNote, onChange: (e) => setLeaveNote(e.target.value),
-            placeholder: "備註（選填）",
-            className: "w-full px-3 py-2.5 rounded-lg text-sm",
-            style: { border: `1px solid ${C.line}`, fontFamily: "Inter", background: C.paper },
-          }),
-          React.createElement('div', { className: "flex gap-2" },
-            React.createElement('button', {
-              onClick: submitLeave, disabled: busy || !leaveType,
-              className: "flex-1 py-3 rounded-xl text-sm flex items-center justify-center",
-              style: { background: ATTEND_COLORS.panelBorder, color: "white", fontFamily: "Inter", fontWeight: 700, opacity: busy || !leaveType ? 0.5 : 1, textAlign: "center" },
-            }, busy ? "處理中…" : "確認請假"),
-            todayRec && todayRec.leave && React.createElement('button', {
-              onClick: clearLeave, disabled: busy,
-              className: "px-4 py-3 rounded-xl text-sm flex items-center justify-center",
-              style: { background: ATTEND_COLORS.outBg, color: ATTEND_COLORS.outText, border: `1px solid ${ATTEND_COLORS.outBorder}`, fontFamily: "Inter", fontWeight: 700, textAlign: "center" },
-            }, "取消請假")
-          )
-        ),
-
-        mode === "records" && React.createElement('div', {
-          className: "flex flex-col gap-3",
-          style: {
-            touchAction: "pan-y",
-            WebkitOverflowScrolling: "touch",
-            overscrollBehaviorY: "contain",
-          },
-        },
-          !supervisorMode && React.createElement('div', { className: "flex items-center gap-2 flex-wrap" },
-            React.createElement('select', {
-              value: recYear,
-              onChange: (e) => setRecYear(Number(e.target.value)),
-              className: "px-3 py-2 rounded-lg text-sm",
-              style: { border: `1px solid ${C.line}`, fontFamily: "Inter", background: C.paper, color: C.ink },
-            }, [recYear - 1, recYear, recYear + 1].filter((y, i, a) => a.indexOf(y) === i).map((y) =>
-              React.createElement('option', { key: y, value: y }, y, "年")
-            )),
-            React.createElement('select', {
-              value: recMonth,
-              onChange: (e) => setRecMonth(Number(e.target.value)),
-              className: "px-3 py-2 rounded-lg text-sm",
-              style: { border: `1px solid ${C.line}`, fontFamily: "Inter", background: C.paper, color: C.ink },
-            }, Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
-              React.createElement('option', { key: m, value: m }, m, "月")
-            ))
-          ),
-
-          !supervisorMode && React.createElement(React.Fragment, null,
-            React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "整月出勤表"),
-            (() => {
-              const prefix = `${recYear}-${String(recMonth).padStart(2, "0")}-`;
-              const days = daysInMonth(recYear, recMonth);
-              const byDate = {};
-              myList.forEach((rec) => { if (rec.date && rec.date.startsWith(prefix)) byDate[rec.date] = rec; });
-              let sumReg = 0, sumOver7 = 0, sumOt = 0, leaveDays = 0;
-              const rows = [];
-              for (let d = 1; d <= days; d++) {
-                const dk = prefix + String(d).padStart(2, "0");
-                const rec = byDate[dk];
-                const rh = rec ? calcBlockHours(rec.regular) : { total: "—", totalNum: null };
-                const oh = rec ? calcBlockHours(rec.overtime) : { total: "—", totalNum: null };
-                const leave = rec && rec.leave ? rec.leave.type : "";
-                if (rh.totalNum != null) sumReg += rh.totalNum;
-                const over7 = Math.max(0, (rh.totalNum || 0) - 7);
-                sumOver7 += over7;
-                if (oh.totalNum != null) sumOt += oh.totalNum;
-                if (leave) leaveDays += 1;
-                const rp = (rec && rec.regular && rec.regular.punches) || {};
-                const op = (rec && rec.overtime && rec.overtime.punches) || {};
-                rows.push({ d, dk, rh, oh, over7, leave, rp, op, has: !!rec });
-              }
-              return React.createElement('div', { className: "rounded-2xl overflow-hidden", style: { border: `1px solid ${C.line}`, background: C.paper } },
-                React.createElement('div', { className: "px-3 py-2 flex items-center justify-between gap-2", style: { borderBottom: `1px solid ${C.line}`, background: C.cream } },
-                  React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, color: C.ink, fontSize: 14 } }, recYear, "年", recMonth, "月・整月出勤表"),
-                  React.createElement('button', {
-                    onClick: () => exportAttendanceExcel({
-                      personId: loggedInId,
-                      personName: (people.find((p) => p.id === loggedInId) || {}).name || loggedInId,
-                      rows, sumReg, sumOver7, sumOt
-                    }),
-                    className: "px-2 py-1 rounded-lg text-xs",
-                    style: { background: "#217346", color: "white", fontFamily: "Inter", fontWeight: 800, flexShrink: 0 }
-                  }, "Excel")
-                ),
-                React.createElement('div', {
-                  className: "overflow-x-auto",
-                  style: { WebkitOverflowScrolling: "touch", touchAction: "pan-x pan-y" },
-                },
-                  React.createElement('table', { className: "w-full text-xs", style: { borderCollapse: "collapse", fontFamily: "Inter", minWidth: 320 } },
-                    React.createElement('thead', null,
-                      React.createElement('tr', { style: { background: "#F5F0E8" } },
-                        [
-                          { top: "日" },
-                          { top: "正常上班時間", sub: "（第1輪＋第2輪）" },
-                          { top: "加班時間" },
-                          { top: "正常上班工時", sub: "（第1輪＋第2輪）" },
-                          { top: "（1＋2）超過7小時" },
-                          { top: "加班工時" },
-                        ].map((h) =>
-                          React.createElement('th', { key: h.top, className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: C.ink, fontWeight: 700, fontSize: 9, lineHeight: 1.25 } },
-                            React.createElement('div', null, h.top),
-                            h.sub && React.createElement('div', { style: { fontSize: 8, fontWeight: 600, marginTop: 2 } }, h.sub)
-                          )
-                        )
-                      )
-                    ),
-                    React.createElement('tbody', null,
-                      rows.map((r) => React.createElement('tr', { key: r.dk, style: { background: r.has ? C.paper : "#FBF8F2" } },
-                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 700, color: C.ink } }, r.d),
-                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono", fontSize: 9 } },
-                          r.has ? `${r.rp.amIn || "—"}-${r.rp.amOut || "—"} / ${r.rp.pmIn || "—"}-${r.rp.pmOut || "—"}` : "—"
-                        ),
-                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono", fontSize: 9 } },
-                          r.has && (r.op.amIn || r.op.amOut || r.op.pmIn || r.op.pmOut) ? `${r.op.amIn || "—"}-${r.op.amOut || "—"} / ${r.op.pmIn || "—"}-${r.op.pmOut || "—"}` : "—"
-                        ),
-                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono" } }, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
-                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: r.over7 > 0 ? C.alert : C.inkSoft, fontFamily: "IBM Plex Mono", fontWeight: r.over7 > 0 ? 800 : 500 } }, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
-                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—")
-                      )),
-                      React.createElement('tr', { style: { background: `${C.wine}10` } },
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: C.ink } }, "合計"),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}` } }, "—"),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}` } }, "—"),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono" } }, sumReg.toFixed(2)),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: C.alert, fontFamily: "IBM Plex Mono" } }, sumOver7.toFixed(2)),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 900, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, sumOt.toFixed(2))
-                      )
-                    )
-                  )
-                )
-              );
-            })(),
-            React.createElement('div', { className: "text-sm", style: { fontFamily: "Inter", fontWeight: 700, color: C.ink } }, "明細列表"),
-            myList.length === 0 && React.createElement('div', { className: "text-sm text-center py-6", style: { color: C.inkSoft, fontFamily: "Inter" } }, "尚無打卡紀錄"),
-            myList.filter((rec) => {
-              const prefix = `${recYear}-${String(recMonth).padStart(2, "0")}-`;
-              return rec.date && rec.date.startsWith(prefix);
-            }).map((rec) => {
-              const { rh, oh, leave } = summarizeRec(rec);
-              const rp = (rec.regular && rec.regular.punches) || {};
-              const op = (rec.overtime && rec.overtime.punches) || {};
-              return React.createElement('div', { key: rec.date, className: "rounded-xl p-3", style: { background: C.paper, border: `1px solid ${C.line}` } },
-                React.createElement('div', { className: "flex justify-between mb-1" },
-                  React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, color: C.ink } }, rec.date),
-                  React.createElement('span', { className: "text-xs", style: { color: ATTEND_COLORS.panelBorder, fontFamily: "Inter", fontWeight: 700 } },
-                    "正 ", rh.total, " / 加 ", oh.total, leave ? ` / ${leave}` : ""
-                  )
-                ),
-                React.createElement('div', { className: "text-xs mb-0.5", style: { color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono" } },
-                  "正 ", (rp.amIn || "—"), "→", (rp.amOut || "—"), " / ", (rp.pmIn || "—"), "→", (rp.pmOut || "—")
-                ),
-                React.createElement('div', { className: "text-xs", style: { color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } },
-                  "加 ", (op.amIn || "—"), "→", (op.amOut || "—"), " / ", (op.pmIn || "—"), "→", (op.pmOut || "—")
-                )
-              );
-            })
-          ),
-
-          supervisorMode && canSupervisorEdit && React.createElement(React.Fragment, null,
-            React.createElement('div', {
-              className: "flex-shrink-0 rounded-xl px-3 py-2 text-center",
-              style: {
-                fontFamily: "Inter", fontWeight: 900, fontSize: 8, color: "white",
-                background: C.wine, fontSize: 18, letterSpacing: 1,
-                boxShadow: "0 4px 12px rgba(111,41,76,.18)",
-              },
-            }, "主管模式"),
-            React.createElement('div', {
-              className: "gap-2 flex-shrink-0",
-              style: { display: "grid", gridTemplateColumns: "64px 58px minmax(0, 1fr)" },
-            },
-              React.createElement('select', {
-                value: recYear,
-                onChange: (e) => setRecYear(Number(e.target.value)),
-                className: "px-1 py-1.5 rounded-lg text-xs",
-                style: { border: `1px solid ${C.line}`, fontFamily: "Inter", background: C.paper, color: C.ink, minWidth: 0, width: "100%", fontSize: 12 },
-              }, [recYear - 1, recYear, recYear + 1].filter((y, i, a) => a.indexOf(y) === i).map((y) =>
-                React.createElement('option', { key: y, value: y }, y, "年")
-              )),
-              React.createElement('select', {
-                value: recMonth,
-                onChange: (e) => setRecMonth(Number(e.target.value)),
-                className: "px-1 py-1.5 rounded-lg text-xs",
-                style: { border: `1px solid ${C.line}`, fontFamily: "Inter", background: C.paper, color: C.ink, minWidth: 0, width: "100%", fontSize: 12 },
-              }, Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
-                React.createElement('option', { key: m, value: m }, m, "月")
-              )),
-              React.createElement('select', {
-                value: supervisorPersonId,
-                onChange: (e) => setSupervisorPersonId(e.target.value),
-                className: "px-2 py-1.5 rounded-lg text-sm",
-                style: {
-                  border: `1px solid ${C.line}`,
-                  background: C.paper, color: C.ink, fontFamily: "Inter",
-                  minWidth: 0, width: "100%", fontSize: 13.5, fontWeight: 700,
-                },
-              },
-                React.createElement('option', { value: "" }, "人員"),
-                attendancePeople.map((p) => React.createElement('option', { key: p.id, value: p.id }, p.id, "・", p.name || p.id))
-              )
-            ),
-
-            supervisorLoading && React.createElement('div', { className: "text-sm text-center py-5", style: { color: C.inkSoft } }, "載入出勤資料中…"),
-
-            supervisorPersonId && !supervisorLoading && (() => {
-              const prefix = `${recYear}-${String(recMonth).padStart(2, "0")}-`;
-              const days = daysInMonth(recYear, recMonth);
-              const byDate = {};
-              supervisorList.forEach((rec) => { if (rec.date && rec.date.startsWith(prefix)) byDate[rec.date] = rec; });
-              const selectedPerson = attendancePeople.find((p) => p.id === supervisorPersonId);
-              let sumReg = 0, sumOver7 = 0, sumOt = 0, leaveDays = 0;
-              const rows = [];
-              for (let d = 1; d <= days; d++) {
-                const date = prefix + String(d).padStart(2, "0");
-                const rec = byDate[date] || null;
-                const rh = rec ? calcBlockHours(rec.regular) : { total: "—", totalNum: null };
-                const oh = rec ? calcBlockHours(rec.overtime) : { total: "—", totalNum: null };
-                const leave = rec && rec.leave ? rec.leave.type : "";
-                if (rh.totalNum != null) sumReg += rh.totalNum;
-                const over7 = Math.max(0, (rh.totalNum || 0) - 7);
-                sumOver7 += over7;
-                if (oh.totalNum != null) sumOt += oh.totalNum;
-                if (leave) leaveDays++;
-                rows.push({ d, date, rec, rh, oh, over7, leave });
-              }
-              return React.createElement('div', { className: "rounded-2xl overflow-hidden", style: { border: `1px solid ${C.line}`, background: C.paper } },
-                React.createElement('div', { className: "px-3 py-2 no-print", style: { background: C.cream, borderBottom: `1px solid ${C.line}` } },
-                  React.createElement('div', { className: "flex items-start justify-between gap-2 flex-wrap" },
-                    React.createElement('div', null,
-                      React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 800, color: C.ink } },
-                        (selectedPerson && selectedPerson.name) || supervisorPersonId, "（", supervisorPersonId, "）"
-                      ),
-                      React.createElement('div', { className: "text-xs mt-0.5", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" } },
-                        recYear, "年", recMonth, "月"
-                      )
-                    ),
-                    React.createElement('div', { className: "flex items-center gap-1 flex-wrap justify-end" },
-                      React.createElement('button', {
-                        onClick: supervisorZoomOut,
-                        className: "px-2.5 py-1.5 rounded-lg text-xs",
-                        style: { background: C.paper, border: `1px solid ${C.line}`, color: C.ink, fontWeight: 800 },
-                      }, "－"),
-                      React.createElement('span', { className: "text-xs px-1", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono", minWidth: 38, textAlign: "center" } },
-                        Math.round(supervisorZoom * 100), "%"
-                      ),
-                      React.createElement('button', {
-                        onClick: supervisorZoomIn,
-                        className: "px-2.5 py-1.5 rounded-lg text-xs",
-                        style: { background: C.paper, border: `1px solid ${C.line}`, color: C.ink, fontWeight: 800 },
-                      }, "＋"),
-                      React.createElement('button', {
-                        onClick: supervisorZoomReset,
-                        className: "px-2 py-1.5 rounded-lg text-xs",
-                        style: { background: C.paper, border: `1px solid ${C.line}`, color: C.inkSoft, fontWeight: 700 },
-                      }, "重設"),
-                      React.createElement('button', {
-                        onClick: printSupervisorAttendance,
-                        className: "px-2.5 py-1.5 rounded-lg text-xs",
-                        style: { background: C.wine, color: "white", fontWeight: 800 },
-                      }, "列印／存PDF"),
-                      React.createElement('button', {
-                        onClick: () => exportAttendanceExcel({
-                          personId: supervisorPersonId,
-                          personName: (selectedPerson && selectedPerson.name) || supervisorPersonId,
-                          rows, sumReg, sumOver7, sumOt
-                        }),
-                        className: "px-2.5 py-1.5 rounded-lg text-xs",
-                        style: { background: "#217346", color: "white", fontWeight: 800 },
-                      }, "Excel")
-                    )
-                  )
-                ),
-                React.createElement('div', {
-                  style: {
-                    width: "100%",
-                    overflowX: "auto",
-                    overflowY: "visible",
-                    WebkitOverflowScrolling: "touch",
-                    overscrollBehaviorX: "contain",
-                    touchAction: "pan-x pan-y",
-                  },
-                },
-                  React.createElement('table', { className: "w-full text-xs no-print",
-                    style: {
-                      borderCollapse: "collapse",
-                      tableLayout: "fixed",
-                      width: "100%",
-                      minWidth: 0,
-                      fontFamily: "Inter",
-                      zoom: supervisorZoom,
-                      transformOrigin: "top left",
-                    } },
-                    React.createElement('thead', { style: { position: "sticky", top: 0, zIndex: 2, background: "#F5F0E8" } },
-                      React.createElement('tr', null,
-                        [
-                          { t: "日", w: "6%" },
-                          { t: "正常上班時間", sub: "（第1輪＋第2輪）", w: "25%" },
-                          { t: "加班時間", w: "20%" },
-                          { t: "正常上班工時", sub: "（第1輪＋第2輪）", w: "13%" },
-                          { t: "（1＋2）超過7小時", w: "12%" },
-                          { t: "加班工時", w: "11%" },
-                          { t: "修改", w: "13%" },
-                        ].map((h) =>
-                          React.createElement('th', {
-                            key: h.t,
-                            className: "px-0.5 py-2 text-center",
-                            style: { width: h.w, border: `1px solid ${C.line}`, fontWeight: 800, color: C.ink, fontSize: 8.2, padding: "4px 1px", lineHeight: 1.18 },
-                          },
-                            React.createElement('div', null, h.t),
-                            h.sub && React.createElement('div', { style: { fontSize: 7.2, fontWeight: 600, marginTop: 2 } }, h.sub)
-                          )
-                        )
-                      )
-                    ),
-                    React.createElement('tbody', null,
-                      rows.map((r) => {
-                        const rp = (r.rec && r.rec.regular && r.rec.regular.punches) || {};
-                        const op = (r.rec && r.rec.overtime && r.rec.overtime.punches) || {};
-                        const hasAbnormal = !!(r.rec && pendingAbnormal(r.rec).length);
-                        return React.createElement('tr', { key: r.date, style: { background: hasAbnormal ? "#FFF0ED" : (r.rec ? C.paper : "#FBF8F2") } },
-                          React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 700, fontSize: 8, padding: "3px 1px" } }, r.d),
-                          React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono", fontSize: 6.8, lineHeight: 1.1, wordBreak: "break-all" } },
-                            r.rec ? `${rp.amIn || "—"}-${rp.amOut || "—"} / ${rp.pmIn || "—"}-${rp.pmOut || "—"}` : "—"
-                          ),
-                          React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono", fontSize: 6.8, lineHeight: 1.1, wordBreak: "break-all" } },
-                            r.rec ? `${op.amIn || "—"}-${op.amOut || "—"} / ${op.pmIn || "—"}-${op.pmOut || "—"}` : "—"
-                          ),
-                          React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono", fontSize: 8 } }, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
-                          React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: r.over7 > 0 ? C.alert : C.inkSoft, fontFamily: "IBM Plex Mono", fontWeight: r.over7 > 0 ? 800 : 500, fontSize: 8 } }, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
-                          React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono", fontSize: 8 } }, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—"),
-                          React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}` } },
-                            React.createElement('button', {
-                              onClick: () => openAttendanceEditor(supervisorPersonId, r.date, r.rec),
-                              className: "px-1 py-0.5 rounded-md",
-                              style: {
-                                background: r.rec ? `${C.wine}18` : "#FFF5F5",
-                                color: r.rec ? C.wine : "#D93025",
-                                border: r.rec ? "none" : "1px solid #D9302570",
-                                fontWeight: 900,
-                              },
-                            }, (r.rec && pendingAbnormal(r.rec).length) ? "確認下班" : (r.rec ? "修改" : "補登"))
-                          )
-                        );
-                      }),
-                      React.createElement('tr', { style: { background: `${C.wine}10` } },
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800 } }, "合計"),
-                        React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—"),
-                        React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—"),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontWeight: 800, fontFamily: "IBM Plex Mono" } }, sumReg.toFixed(2)),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: C.alert, fontWeight: 800, fontFamily: "IBM Plex Mono" } }, sumOver7.toFixed(2)),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontWeight: 900, fontFamily: "IBM Plex Mono" } }, sumOt.toFixed(2)),
-                        React.createElement('td', { style: { border: `1px solid ${C.line}` } })
-                      )
-                    )
-                  )
-                ),
-
-                React.createElement('div', { className: "attendance-supervisor-print" },
-                  React.createElement('div', { className: "attendance-print-title" },
-                    React.createElement('div', { className: "attendance-print-main" }, "出勤紀錄表"),
-                    React.createElement('div', { className: "attendance-print-sub" },
-                      ((selectedPerson && selectedPerson.name) || supervisorPersonId), "（", supervisorPersonId, "）　",
-                      recYear, "年", recMonth, "月"
-                    )
-                  ),
-                  React.createElement('table', { className: "attendance-print-table" },
-                    React.createElement('thead', null,
-                      React.createElement('tr', null,
-                        [
-                          { top: "日" },
-                          { top: "正常上班時間", sub: "（第1輪＋第2輪）" },
-                          { top: "加班時間" },
-                          { top: "正常上班工時", sub: "（第1輪＋第2輪）" },
-                          { top: "（1＋2）超過7小時" },
-                          { top: "加班工時" },
-                        ].map((h) =>
-                          React.createElement('th', { key: h.top },
-                            h.top,
-                            h.sub && React.createElement(React.Fragment, null, React.createElement('br'), h.sub)
-                          )
-                        )
-                      )
-                    ),
-                    React.createElement('tbody', null,
-                      rows.map((r) => {
-                        const rp = (r.rec && r.rec.regular && r.rec.regular.punches) || {};
-                        const op = (r.rec && r.rec.overtime && r.rec.overtime.punches) || {};
-                        return React.createElement('tr', { key: "print-" + r.date },
-                          React.createElement('td', null, r.d),
-                          React.createElement('td', null, r.rec ? `${rp.amIn || "—"}-${rp.amOut || "—"} / ${rp.pmIn || "—"}-${rp.pmOut || "—"}` : "—"),
-                          React.createElement('td', null, r.rec ? `${op.amIn || "—"}-${op.amOut || "—"} / ${op.pmIn || "—"}-${op.pmOut || "—"}` : "—"),
-                          React.createElement('td', null, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
-                          React.createElement('td', null, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
-                          React.createElement('td', null, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—")
-                        );
-                      }),
-                      React.createElement('tr', { className: "attendance-print-total" },
-                        React.createElement('td', null, "合計"),
-                        React.createElement('td', null, "—"),
-                        React.createElement('td', null, "—"),
-                        React.createElement('td', null, sumReg.toFixed(2)),
-                        React.createElement('td', null, sumOver7.toFixed(2)),
-                        React.createElement('td', null, sumOt.toFixed(2))
-                      )
-                    )
-                  )
-                )
-              );
-            })()
-          )
-        ),
-
-        editAttendance && editAttendanceDraft && React.createElement('div', {
-          className: "fixed inset-0 flex items-end",
-          style: { background: "rgba(43,33,25,.55)", zIndex: 10020 },
-          onClick: () => { setEditAttendance(null); setEditAttendanceDraft(null); },
-        },
-          React.createElement('div', {
-            className: "w-full rounded-t-2xl p-4",
-            style: {
-              background: C.paper,
-              maxHeight: "88vh",
-              overflowY: "auto",
-              WebkitOverflowScrolling: "touch",
-              overscrollBehaviorY: "contain",
-              touchAction: "pan-y",
-            },
-            onClick: (e) => e.stopPropagation(),
-          },
-            React.createElement('div', { className: "flex items-center justify-between mb-3" },
-              React.createElement('div', null,
-                React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 800, color: C.ink } }, "修改出勤紀錄"),
-                React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" } },
-                  editAttendanceDraft.personName || editAttendanceDraft.personId, "・", editAttendanceDraft.date
-                ),
-                pendingAbnormal(editAttendanceDraft).length > 0 && React.createElement('div', { className:"text-xs mt-1", style:{color:"#C73525",fontFamily:"Inter",fontWeight:800} }, "⚠ 異常長工時：請確認並填入正確下班時間，儲存後由主管完成確認")
-              ),
-              React.createElement('button', {
-                onClick: () => { setEditAttendance(null); setEditAttendanceDraft(null); },
-                className: "px-3 py-1.5 rounded-lg text-xs",
-                style: { background: C.cream, color: C.ink, border: `1px solid ${C.line}`, fontWeight: 700 },
-              }, "取消")
-            ),
-
-            ["regular", "overtime"].map((kind) =>
-              React.createElement('div', { key: kind, className: "mb-4 rounded-xl p-3", style: { border: `1px solid ${C.line}`, background: C.cream } },
-                React.createElement('div', { className: "text-sm mb-2", style: { fontWeight: 800, color: kind === "regular" ? ATTEND_COLORS.inText : ATTEND_COLORS.otText } },
-                  kind === "regular" ? "正常班" : "加班"
-                ),
-                React.createElement('div', { className: "grid grid-cols-2 gap-2" },
-                  ATTEND_SLOTS.map((slot) =>
-                    React.createElement('label', { key: slot.key, className: "text-xs", style: { color: C.inkSoft } },
-                      slot.label,
-                      React.createElement('input', {
-                        type: "time",
-                        value: (((editAttendanceDraft[kind] || {}).punches || {})[slot.key]) || "",
-                        onChange: (e) => setEditPunch(kind, slot.key, e.target.value),
-                        className: "w-full mt-1 px-2 py-2 rounded-lg",
-                        style: { background: C.paper, border: `1px solid ${C.line}`, color: C.ink, fontFamily: "IBM Plex Mono" },
-                      })
-                    )
-                  )
-                )
-              )
-            ),
-
-            React.createElement('div', { className: "mb-4 rounded-xl p-3", style: { border: `1px solid ${C.line}`, background: C.cream } },
-              React.createElement('div', { className: "flex items-center justify-between mb-2" },
-                React.createElement('span', { className: "text-sm", style: { fontWeight: 800, color: "#B8860B" } }, "請假"),
-                editAttendanceDraft.leave && React.createElement('button', {
-                  onClick: clearEditLeave,
-                  className: "px-2 py-1 rounded-lg text-xs",
-                  style: { background: `${C.alert}15`, color: C.alert, fontWeight: 700 },
-                }, "清除請假")
-              ),
-              React.createElement('select', {
-                value: (editAttendanceDraft.leave && editAttendanceDraft.leave.type) || "",
-                onChange: (e) => setEditLeaveField("type", e.target.value),
-                className: "w-full px-3 py-2 rounded-lg text-sm mb-2",
-                style: { border: `1px solid ${C.line}`, background: C.paper, color: C.ink },
-              },
-                React.createElement('option', { value: "" }, "無請假"),
-                leaveTypes.map((t) => React.createElement('option', { key: t, value: t }, t))
-              ),
-              React.createElement('input', {
-                value: (editAttendanceDraft.leave && editAttendanceDraft.leave.note) || "",
-                onChange: (e) => setEditLeaveField("note", e.target.value),
-                placeholder: "請假備註",
-                className: "w-full px-3 py-2 rounded-lg text-sm",
-                style: { border: `1px solid ${C.line}`, background: C.paper },
-              })
-            ),
-
-            React.createElement('button', {
-              onClick: saveSupervisorAttendance,
-              disabled: busy,
-              className: "w-full py-3.5 rounded-xl text-base",
-              style: { background: C.wine, color: "white", fontFamily: "Inter", fontWeight: 800, opacity: busy ? .6 : 1 },
-            }, busy ? "儲存中…" : "儲存出勤修改")
-          )
-        ),
-
-        mode === "settings" && loggedInId && React.createElement('div', { className: "flex flex-col gap-3" },
-          React.createElement('div', { className: "rounded-2xl p-4 flex flex-col gap-3", style: { background: ATTEND_COLORS.panelBg, border: `2px solid ${ATTEND_COLORS.panelBorder}` } },
-            React.createElement('div', { className: "text-sm", style: { color: ATTEND_COLORS.panelBorder, fontFamily: "Inter", fontWeight: 700 } }, "手機定位權限"),
-            React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter", lineHeight: 1.6 } },
-              "按下方按鈕會向系統申請定位。若曾拒絕，請到 Chrome「設定 → 隱私權和安全性 → 網站設定 → 位置」允許或清除後再試。以 content:// 開啟本機檔時，瀏覽器可能無法定位，需改 HTTPS。"
-            ),
-            React.createElement('button', {
-              onClick: async () => {
-                setBusy(true);
-                setMsg("正在向系統申請定位…");
-                const geo = await getPhoneGeo();
-                if (geo && geo.lat != null && !geo.error) {
-                  setMsg(`定位成功：${geo.lat}, ${geo.lon}（誤差約 ${geo.accuracy}m）`);
-                } else {
-                  setMsg((geo && geo.error) || "定位失敗");
-                }
-                setBusy(false);
-              },
-              disabled: busy,
-              className: "w-full py-3 rounded-xl text-sm flex items-center justify-center",
-              style: { background: ATTEND_COLORS.panelBorder, color: "white", fontFamily: "Inter", fontWeight: 700, opacity: busy ? 0.6 : 1, textAlign: "center" },
-            }, busy ? "申請中…" : "啟用定位（向手機申請權限）")
-          ),
-          React.createElement('div', { className: "rounded-2xl p-4 flex flex-col gap-3", style: { background: C.paper, border: `1px solid ${C.line}` } },
-            React.createElement('div', { className: "text-sm", style: { color: C.ink, fontFamily: "Inter", fontWeight: 700 } }, "個人預設休息時段"),
-            React.createElement('label', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "休息開始",
-              React.createElement('input', {
-                type: "time", value: prefDraft.restStart || "12:00",
-                onChange: (e) => setPrefDraft((d) => ({ ...d, restStart: e.target.value })),
-                className: "w-full mt-1 px-3 py-2.5 rounded-lg text-sm",
-                style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono", background: C.cream },
-              })
-            ),
-            React.createElement('label', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "休息結束",
-              React.createElement('input', {
-                type: "time", value: prefDraft.restEnd || "13:00",
-                onChange: (e) => setPrefDraft((d) => ({ ...d, restEnd: e.target.value })),
-                className: "w-full mt-1 px-3 py-2.5 rounded-lg text-sm",
-                style: { border: `1px solid ${C.line}`, fontFamily: "IBM Plex Mono", background: C.cream },
-              })
-            ),
-            React.createElement('button', {
-              onClick: savePref, disabled: busy,
-              className: "w-full py-3 rounded-xl text-sm flex items-center justify-center",
-              style: { background: ATTEND_COLORS.panelBorder, color: "white", fontFamily: "Inter", fontWeight: 700, opacity: busy ? 0.6 : 1, textAlign: "center" },
-            }, busy ? "儲存中…" : "儲存提示時段")
-          ),
-          React.createElement('div', { className: "rounded-2xl p-4 flex flex-col gap-3", style: { background: C.paper, border: `1px solid ${C.line}` } },
-            React.createElement('div', { className: "text-sm", style: { color: C.ink, fontFamily: "Inter", fontWeight: 700 } }, "假別編輯", canEditTypes ? "" : "（僅管理者可改）"),
-            React.createElement('div', { className: "flex flex-wrap gap-1.5" },
-              leaveTypes.map((t) => React.createElement('span', {
-                key: t,
-                className: "inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs",
-                style: { background: C.cream, border: `1px solid ${C.line}`, fontFamily: "Inter", fontWeight: 600, color: C.ink },
-              }, t,
-                canEditTypes && React.createElement('button', {
-                  onClick: () => removeLeaveType(t),
-                  style: { color: ATTEND_COLORS.outText, fontWeight: 800, marginLeft: 4 },
-                }, "×")
-              ))
-            ),
-            canEditTypes && React.createElement('div', { className: "flex gap-2" },
-              React.createElement('input', {
-                value: newLeaveType, onChange: (e) => setNewLeaveType(e.target.value),
-                placeholder: "新增假別名稱",
-                className: "flex-1 px-3 py-2.5 rounded-lg text-sm min-w-0",
-                style: { border: `1px solid ${C.line}`, fontFamily: "Inter", background: C.cream },
-              }),
-              React.createElement('button', {
-                onClick: addLeaveType, disabled: busy,
-                className: "px-4 py-2.5 rounded-xl text-sm flex items-center justify-center",
-                style: { background: ATTEND_COLORS.panelBorder, color: "white", fontFamily: "Inter", fontWeight: 700, textAlign: "center" },
-              }, "新增")
-            )
-          )
-        )
-      )
-    )
-    )
-  );
-}
-
-// 功能表1：人員與帳號 — 新增人員、自動產生ID與密碼
 function IllustratedMap() {
   return (
     React.createElement('div', { className: "relative w-full" , style: { height: 460 },}
@@ -1979,7 +603,7 @@ function ModuleGrid({ onPick, pendingPermCount = 0 }) {
   );
 }
 
-function GlobalMenuSheet({ onClose, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenAttendance, onOpenBackup, pendingPermCount }) {
+function GlobalMenuSheet({ onClose, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenBackup, pendingPermCount }) {
   const pick = (key) => {
     onClose();
     if (key === "materials") onOpenReport();
@@ -1990,7 +614,6 @@ function GlobalMenuSheet({ onClose, onOpenReport, onOpenCalendar, onOpenFolders,
     else if (key === "personnel") onOpenPersonnel();
     else if (key === "permissions") onOpenPermissions();
     else if (key === "yield") onOpenYield();
-    else if (key === "attendance") onOpenAttendance && onOpenAttendance();
   };
   return (
     React.createElement('div', { className: "fixed inset-0 z-40 flex items-end"    , style: { background: "rgba(43,33,25,0.5)" }, onClick: onClose,}
@@ -2124,7 +747,7 @@ function BackupPanel({ onClose }) {
   );
 }
 
-function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenAttendance, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
+function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
   const groups = [...new Set(ZONES.filter((z) => z.group).map((z) => z.group))];
   const [zoom, setZoom] = useState(1);
   const [showGlobalMenu, setShowGlobalMenu] = useState(false);
@@ -2314,16 +937,19 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
                 )
               , React.createElement('span', { style: { color: "white", fontFamily: "Inter", fontWeight: 800, whiteSpace: "nowrap", fontSize: 12.1, letterSpacing: "0.01em" } }, "總功能表")
             )
-            , React.createElement('div', { className: "home-solar-route", style: { position:"relative", width:174, height:48, color:"#FF5A36", fontFamily:"Inter", fontWeight:900, flexShrink:0, overflow:"visible", textShadow:"0 1px 4px rgba(0,0,0,.72)" } }
-              , React.createElement('div', { style:{position:"absolute",left:8,right:8,top:18,height:2,background:"#FF5A36",boxShadow:"0 0 7px rgba(255,90,54,.65)"} })
-              , React.createElement('div', { style:{position:"absolute",left:5,top:14,width:9,height:9,borderRadius:"50%",background:"#FF5A36",boxShadow:"0 0 8px rgba(255,90,54,.85)"} })
-              , React.createElement('div', { style:{position:"absolute",right:5,top:14,width:9,height:9,borderRadius:"50%",background:"#FF5A36",boxShadow:"0 0 8px rgba(255,90,54,.85)"} })
-              , React.createElement('div', { style:{position:"absolute",left:`${8+homeSolarRoute.ratio*158}px`,top:12,width:13,height:13,borderRadius:"50%",transform:"translateX(-50%)",background:"#FFFDF8",border:"3px solid #FF5A36",boxShadow:"0 0 10px rgba(255,90,54,.95)",zIndex:2} })
-              , React.createElement('div', { style:{position:"absolute",left:0,top:0,fontSize:9.5,width:54,textAlign:"left"} }, homeSolarRoute.prev.label)
-              , React.createElement('div', { style:{position:"absolute",left:0,top:28,fontSize:10.5,width:54,textAlign:"left"} }, homeSolarRoute.prev.name)
-              , React.createElement('div', { style:{position:"absolute",right:0,top:0,fontSize:9.5,width:54,textAlign:"right"} }, homeSolarRoute.next.label)
-              , React.createElement('div', { style:{position:"absolute",right:0,top:28,fontSize:10.5,width:54,textAlign:"right"} }, homeSolarRoute.next.name)
-              , React.createElement('div', { style:{position:"absolute",left:`${8+homeSolarRoute.ratio*158}px`,top:-1,transform:"translateX(-50%)",fontSize:9.5,whiteSpace:"nowrap",color:"#FFFDF8",background:"#FF5A36",borderRadius:7,padding:"1px 4px",textShadow:"none",zIndex:3} }, homeSolarRoute.today)
+            , React.createElement('div', { className: "home-solar-route", style: { position:"relative", width:188, height:52, fontFamily:"Inter", fontWeight:900, flexShrink:0, overflow:"visible" } }
+              , React.createElement('div', { style:{position:"absolute",left:10,right:10,top:22,height:2,background:"#FF5A36",boxShadow:"0 0 7px rgba(255,90,54,.65)"} })
+              , React.createElement('div', { style:{position:"absolute",left:7,top:18,width:9,height:9,borderRadius:"50%",background:"#FF5A36",boxShadow:"0 0 8px rgba(255,90,54,.85)"} })
+              , React.createElement('div', { style:{position:"absolute",right:7,top:18,width:9,height:9,borderRadius:"50%",background:"#FF5A36",boxShadow:"0 0 8px rgba(255,90,54,.85)"} })
+              , React.createElement('div', { style:{position:"absolute",left:`${10+homeSolarRoute.ratio*168}px`,top:16,width:13,height:13,borderRadius:"50%",transform:"translateX(-50%)",background:"#FFFDF8",border:"3px solid #FF5A36",boxShadow:"0 0 10px rgba(255,90,54,.95)",zIndex:2} })
+
+              , React.createElement('div', { style:{position:"absolute",left:0,top:0,fontSize:9.5,lineHeight:1.15,color:"#FFFDF8",background:"#FF5A36",borderRadius:7,padding:"2px 5px",whiteSpace:"nowrap",textShadow:"none",boxShadow:"0 1px 4px rgba(0,0,0,.18)"} }, homeSolarRoute.prev.label)
+              , React.createElement('div', { style:{position:"absolute",left:0,top:32,fontSize:10,lineHeight:1.15,color:"#FFFDF8",background:"#FF5A36",borderRadius:7,padding:"2px 5px",whiteSpace:"nowrap",textShadow:"none",boxShadow:"0 1px 4px rgba(0,0,0,.18)"} }, homeSolarRoute.prev.name)
+
+              , React.createElement('div', { style:{position:"absolute",right:0,top:0,fontSize:9.5,lineHeight:1.15,color:"#FFFDF8",background:"#FF5A36",borderRadius:7,padding:"2px 5px",whiteSpace:"nowrap",textShadow:"none",boxShadow:"0 1px 4px rgba(0,0,0,.18)"} }, homeSolarRoute.next.label)
+              , React.createElement('div', { style:{position:"absolute",right:0,top:32,fontSize:10,lineHeight:1.15,color:"#FFFDF8",background:"#FF5A36",borderRadius:7,padding:"2px 5px",whiteSpace:"nowrap",textShadow:"none",boxShadow:"0 1px 4px rgba(0,0,0,.18)"} }, homeSolarRoute.next.name)
+
+              , React.createElement('div', { style:{position:"absolute",left:`${10+homeSolarRoute.ratio*168}px`,top:-1,transform:"translateX(-50%)",fontSize:9.5,lineHeight:1.15,whiteSpace:"nowrap",color:"#FFFDF8",background:"#FF5A36",borderRadius:7,padding:"2px 5px",textShadow:"none",boxShadow:"0 1px 4px rgba(0,0,0,.18)",zIndex:3} }, homeSolarRoute.today)
             )
           )
         )
@@ -2368,7 +994,6 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
           onOpenPersonnel: () => { setShowGlobalMenu(false); onOpenPersonnel(); },
           onOpenPermissions: () => { setShowGlobalMenu(false); onOpenPermissions(); },
           onOpenYield: () => { setShowGlobalMenu(false); onOpenYield(); },
-          onOpenAttendance: () => { setShowGlobalMenu(false); onOpenAttendance && onOpenAttendance(); },
           onOpenBackup: () => setShowBackup(true),
           pendingPermCount: pendingPermCount,}
         )
@@ -3430,7 +2055,7 @@ function WorkItemManager({ workItems, onClose, onChanged }) {
   );
 }
 
-function FunctionMenu({ zone, onBack, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenAttendance, pendingPermCount }) {
+function FunctionMenu({ zone, onBack, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, pendingPermCount }) {
   const pick = (key) => {
     if (key === "materials") onOpenReport();
     else if (key === "calendar") onOpenCalendar();
@@ -3440,7 +2065,6 @@ function FunctionMenu({ zone, onBack, onOpenReport, onOpenCalendar, onOpenFolder
     else if (key === "personnel") onOpenPersonnel();
     else if (key === "permissions") onOpenPermissions();
     else if (key === "yield") onOpenYield();
-    else if (key === "attendance") onOpenAttendance && onOpenAttendance();
   };
   return (
     React.createElement('div', { className: "min-h-screen", style: { background: C.cream },}
@@ -3448,7 +2072,7 @@ function FunctionMenu({ zone, onBack, onOpenReport, onOpenCalendar, onOpenFolder
       , React.createElement('div', { className: "max-w-md mx-auto px-5 py-6"   ,}
         , React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 20, color: C.ink }, className: "mb-4",}, zone.name, " · 功能表"  )
         , React.createElement(ModuleGrid, { onPick: pick, pendingPermCount: pendingPermCount,} )
-        , React.createElement('div', { className: "mt-5 text-xs text-center"  , style: { color: C.inkSoft, fontFamily: "Inter" },}, "「耗材報表」「年度計畫」「工項提示」「人員／權限」「上下班打卡」已可使用，其餘功能開發中"
+        , React.createElement('div', { className: "mt-5 text-xs text-center"  , style: { color: C.inkSoft, fontFamily: "Inter" },}, "「表一・耗材匯總表」「表二・年度計畫表」「工項行事曆」「分區工項提示內容」「人員與帳號」「權限管理」已可使用，其餘功能開發中"
 
         )
       )
@@ -3958,12 +2582,7 @@ function PermissionsMenu({ onBack, role, onChanged, onLogout }) {
 // 權限編輯：頂層三選一（修改/閱覽/回饋），下方10個功能表逐項勾選變更/閱覽
 function PermissionEditor({ person, editable, onClose, onSaved }) {
   const [tier, setTier] = useState(person.tier || null);
-  const [perms, setPerms] = useState(() => {
-    const p = { ...(person.menuPerms || {}) };
-    if (p[10]) p[9] = p[10];
-    delete p[10];
-    return p;
-  });
+  const [perms, setPerms] = useState(person.menuPerms || {});
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -3989,9 +2608,7 @@ function PermissionEditor({ person, editable, onClose, onSaved }) {
     if (!tier) { setErrorMsg("請先選擇「修改／閱覽／回饋」其中一個權限層級"); return; }
     setSaving(true);
     setErrorMsg("");
-    const cleanPerms = { ...perms };
-    delete cleanPerms[10];
-    const record = { ...person, tier, menuPerms: cleanPerms, status: "active" };
+    const record = { ...person, tier, menuPerms: perms, status: "active" };
     try {
       await window.firebaseReady;
       const result = await window.storage.set(`person:${person.id}`, JSON.stringify(record));
@@ -8070,7 +6687,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   const [globalFolders, setGlobalFolders] = useState(false);
   const [globalPersonnel, setGlobalPersonnel] = useState(false);
   const [globalPermissions, setGlobalPermissions] = useState(false);
-  const [globalAttendance, setGlobalAttendance] = useState(false);
   const [pendingPermCount, setPendingPermCount] = useState(0);
   const [currentPersonPerm, setCurrentPersonPerm] = useState(null);
 
@@ -8101,33 +6717,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     return menuIndex === 1 ? "designer" : "manager";
   };
 
-  const ATT_PREFIX = 'attendance:';
-  const checkAttendanceAbnormalOnLogin = async (personId) => {
-    if (!personId) return;
-    try {
-      const listRes = await window.storage.list(`${ATT_PREFIX}${personId}:`);
-      const keys = (listRes && listRes.keys) || [];
-      const nowMs = Date.now(), alerts = [];
-      for (const k of keys) {
-        const full = k.startsWith(ATT_PREFIX) ? k : `${ATT_PREFIX}${k}`;
-        const res = await window.storage.get(full); if (!res) continue;
-        const raw = JSON.parse(res.value), recDate = raw.date || full.split(":").pop();
-        const rec = normalizeAttendance(raw, personId, recDate);
-        let changed=false; const abnormalities=Array.isArray(rec.abnormalities)?[...rec.abnormalities]:[];
-        [["regular","amIn","amOut","正常班第一輪"],["regular","pmIn","pmOut","正常班第二輪"],["overtime","amIn","amOut","加班第一輪"],["overtime","pmIn","pmOut","加班第二輪"]].forEach(([kind,inSlot,outSlot,label])=>{
-          const p=(((rec[kind]||{}).punches)||{}); if(!p[inSlot]||p[outSlot]) return;
-          const startMs=new Date(`${recDate}T${p[inSlot]}:00+08:00`).getTime(); if(!Number.isFinite(startMs)) return;
-          const elapsed=(nowMs-startMs)/3600000; if(elapsed<7) return;
-          const exists=abnormalities.some((x)=>x&&x.status==="pending"&&x.kind===kind&&x.outSlot===outSlot&&x.startTime===p[inSlot]);
-          if(!exists){abnormalities.push({type:"open_shift_over_hours",kind,inSlot,outSlot,label,startTime:p[inSlot],thresholdHours:7,detectedAt:nowMs,status:"pending"});changed=true;}
-          alerts.push(`${recDate} ${label} ${p[inSlot]} 起已超過7小時仍無下班時間`);
-        });
-        if(changed){rec.abnormalities=abnormalities;rec.updatedAt=Date.now();await window.storage.set(full,JSON.stringify(rec));}
-      }
-      if(alerts.length) window.setTimeout(()=>window.alert(`出勤異常提醒\n${alerts.join("\n")}\n請確認是否忘記下班打卡；若為實際長工時，請由主管模式確認正確下班時間。`),120);
-    } catch(e) { console.warn("attendance abnormal check failed",e); }
-  };
-
   const refreshPendingCount = async () => {
     try {
       const people = await loadAllPeople();
@@ -8135,7 +6724,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     } catch (e) { console.error(e); }
   };
   useEffect(() => { refreshPendingCount(); }, []);
-  useEffect(() => { if (loggedInId) checkAttendanceAbnormalOnLogin(loggedInId); }, [loggedInId]);
   useEffect(() => { if (loggedInId) loadCurrentPersonPerm(loggedInId); }, [loggedInId]);
 
   const handleLogin = (r, id) => { setRole(r); setLoggedInId(id); loadCurrentPersonPerm(id); };
@@ -8147,7 +6735,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     setGlobalFolders(false);
     setGlobalPersonnel(false);
     setGlobalPermissions(false);
-    setGlobalAttendance(false);
     setRole("guest");
     setLoggedInId(null);
     setCurrentPersonPerm(null);
@@ -8266,7 +6853,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
           onOpenFolders: () => setGlobalFolders(true),
           onOpenPersonnel: () => setGlobalPersonnel(true),
           onOpenPermissions: () => setGlobalPermissions(true),
-          onOpenAttendance: () => setGlobalAttendance(true),
           pendingPermCount: pendingPermCount,
           role: role,
           loggedInId: loggedInId,
@@ -8280,7 +6866,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       , globalFolders && React.createElement(ZoneWorkFolders, { onBack: backToMap, role: roleForMenu(3), loggedInId: loggedInId,} )
       , globalPersonnel && React.createElement(PersonnelMenu, { onBack: backToMap, role: roleForMenu(0), onChanged: refreshPendingCount,} )
       , globalPermissions && React.createElement(PermissionsMenu, { onBack: backToMap, role: roleForMenu(1), onChanged: async () => { await refreshPendingCount(); await loadCurrentPersonPerm(loggedInId); }, onLogout: handleLogout,} )
-      , globalAttendance && React.createElement(AttendanceMenu, { onBack: backToMap, role: roleForMenu(9), loggedInId: loggedInId,} )
 
       , zone && view === "menu" && React.createElement(ZoneMenu, { zone: zone, onBack: backToMap, onPick: setView,} )
       , zone && view === "function" && (
@@ -8292,7 +6877,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
           onOpenFolders: () => setView("folders"),
           onOpenPersonnel: () => setView("personnel"),
           onOpenPermissions: () => setView("permissions"),
-          onOpenAttendance: () => setView("attendance"),
           pendingPermCount: pendingPermCount,}
         )
       )
@@ -8310,7 +6894,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       , zone && view === "folders" && React.createElement(ZoneWorkFolders, { onBack: backToFunction, role: roleForMenu(3), loggedInId: loggedInId,} )
       , zone && view === "personnel" && React.createElement(PersonnelMenu, { onBack: backToFunction, role: roleForMenu(0), onChanged: refreshPendingCount,} )
       , zone && view === "permissions" && React.createElement(PermissionsMenu, { onBack: backToFunction, role: roleForMenu(1), onChanged: async () => { await refreshPendingCount(); await loadCurrentPersonPerm(loggedInId); }, onLogout: handleLogout,} )
-      , zone && view === "attendance" && React.createElement(AttendanceMenu, { onBack: backToFunction, role: roleForMenu(9), loggedInId: loggedInId,} )
     )
   );
 }
