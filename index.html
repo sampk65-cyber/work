@@ -398,7 +398,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.0・表一期間累計";
+const APP_VERSION = "V4.1・表六PDF Excel";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -4009,15 +4009,79 @@ function FertilizerUsageReport({ year, month, onBack }) {
   useEffect(() => { runReport(); }, []);
   const totalsByUnit = rows.reduce((out, r) => { out[r.unit] = (out[r.unit] || 0) + r.total; return out; }, {});
   const totalByUnitText = Object.entries(totalsByUnit).map(([unit, qty]) => `${fmtQty(qty)}${unit}`).join("／") || "—";
+  const reportRange = startYm === endYm ? startYm : `${startYm}～${endYm}`;
+  const printReport = () => setTimeout(() => window.print(), 80);
+  const ensureFertilizerXlsxLibrary = async () => {
+    if (window.XLSX) return window.XLSX;
+    if (window.__blueRibbonXlsxPromise) return window.__blueRibbonXlsxPromise;
+    window.__blueRibbonXlsxPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      script.async = true;
+      script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error("XLSX library unavailable"));
+      script.onerror = () => reject(new Error("無法載入 Excel 元件，請確認網路連線"));
+      document.head.appendChild(script);
+    });
+    return window.__blueRibbonXlsxPromise;
+  };
+  const exportFertilizerXlsx = async () => {
+    if (!rows.length) { alert("目前沒有可匯出的施肥統計資料"); return; }
+    try {
+      const XLSX = await ensureFertilizerXlsxLibrary();
+      const summaryData = [
+        ["表六・施肥用量統計", reportRange],
+        ["統計範圍", reportRange],
+        ["數量合計", totalByUnitText],
+        [],
+        ["肥料代號", "肥料名稱", "單位", ...ZONES.map((z) => z.short || z.name), "總量"],
+        ...rows.map((r) => [
+          r.code || "", r.name, r.unit,
+          ...ZONES.map((z) => Number(r.zones[z.id] || 0)),
+          Number(r.total || 0),
+        ]),
+      ];
+      const detailData = [
+        ["表六・各月份施肥明細", reportRange],
+        [],
+        ["月份", "肥料代號", "肥料名稱", "用量", "單位"],
+        ...monthRows.map((r) => [r.ym, r.code || "", r.name, Number(r.total || 0), r.unit]),
+      ];
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+      wsSummary["!cols"] = [{wch:12},{wch:20},{wch:10},...ZONES.map(()=>({wch:11})),{wch:12}];
+      const wsDetail = XLSX.utils.aoa_to_sheet(detailData);
+      wsDetail["!cols"] = [{wch:12},{wch:12},{wch:22},{wch:12},{wch:10}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsSummary, "施肥總表");
+      XLSX.utils.book_append_sheet(wb, wsDetail, "月份明細");
+      XLSX.writeFile(wb, `表六_施肥用量統計_${startYm}_至_${endYm}.xlsx`, { compression: true });
+    } catch (e) {
+      console.error("表六 xlsx export failed", e);
+      alert(e && e.message ? e.message : "Excel 匯出失敗，請稍後再試");
+    }
+  };
 
   return React.createElement('div',{className:"min-h-screen flex flex-col",style:{background:C.cream}},
     React.createElement(NavBar,{backLabel:"回表格",onBack:onBack}),
-    React.createElement('div',{className:"max-w-5xl w-full mx-auto px-4 py-5"},
-      React.createElement('div',{className:"mb-4"},
-        React.createElement('div',{style:{fontFamily:"Inter",fontWeight:800,fontSize:20,color:C.ink}},"表六・施肥用量統計"),
-        React.createElement('div',{className:"text-xs mt-1",style:{color:C.inkSoft,fontFamily:"Inter"}},"依各溫室施肥消毒紀錄表，跨月份累計肥料用量；藥品不列入")
+    React.createElement('div',{className:"max-w-5xl w-full mx-auto px-4 py-5 fertilizer-print-area"},
+      React.createElement('style',null,`@media print{
+        @page{size:A4 landscape;margin:8mm;}
+        body *{visibility:hidden!important;}
+        .fertilizer-print-area,.fertilizer-print-area *{visibility:visible!important;}
+        .fertilizer-print-area{position:absolute!important;left:0!important;top:0!important;width:100%!important;max-width:none!important;padding:0!important;}
+        .fertilizer-print-area .no-print{display:none!important;}
+        .fertilizer-print-area table{font-size:9px!important;}
+      }`),
+      React.createElement('div',{className:"mb-4 flex items-start justify-between gap-3 flex-wrap"},
+        React.createElement('div',null,
+          React.createElement('div',{style:{fontFamily:"Inter",fontWeight:800,fontSize:20,color:C.ink}},"表六・施肥用量統計"),
+          React.createElement('div',{className:"text-xs mt-1",style:{color:C.inkSoft,fontFamily:"Inter"}},"依各溫室施肥消毒紀錄表，跨月份累計肥料用量；藥品不列入")
+        ),
+        React.createElement('div',{className:"flex gap-2 no-print"},
+          React.createElement('button',{onClick:printReport,disabled:!rows.length,className:"px-3 py-2 rounded-lg text-xs flex items-center gap-1.5",style:{background:C.wine,color:"white",fontFamily:"Inter",fontWeight:700,opacity:rows.length?1:.45}},React.createElement(Printer,{size:15,color:"white"}),"列印／存PDF"),
+          React.createElement('button',{onClick:exportFertilizerXlsx,disabled:!rows.length,className:"px-3 py-2 rounded-lg text-xs",style:{background:"#217346",color:"white",fontFamily:"Inter",fontWeight:800,opacity:rows.length?1:.45}},"Excel .xlsx")
+        )
       ),
-      React.createElement('div',{className:"p-4 rounded-2xl mb-4",style:{background:C.paper,border:`1px solid ${C.line}`}},
+      React.createElement('div',{className:"p-4 rounded-2xl mb-4 no-print",style:{background:C.paper,border:`1px solid ${C.line}`}},
         React.createElement('div',{className:"grid grid-cols-2 gap-3"},
           React.createElement('label',{className:"text-xs",style:{color:C.inkSoft,fontFamily:"Inter"}},"開始月份",
             React.createElement('select',{value:startYm,onChange:(e)=>setStartYm(e.target.value),className:"w-full mt-1 px-3 py-2 rounded-lg text-sm",style:{background:C.paper,border:`1px solid ${C.line}`,color:C.ink}},monthOptions.map((ym)=>React.createElement('option',{key:ym,value:ym},ym.replace("-","年")+"月")))
