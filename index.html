@@ -398,139 +398,8 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V3.99・版本更新提示+通知路由+登入語音";
+const APP_VERSION = "V4.0・表一期間累計";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
-
-
-// ===== C3 / V3.99：版本更新提示、通知路由顯示、登入語音 =====
-function noticeRouteText(n) {
-  const sender = (n && (n.senderName || n.senderId)) || "—";
-  const ids = (n && Array.isArray(n.recipientIds)) ? n.recipientIds : [];
-  const names = ids.map((id) => {
-    const map = (n && n.recipientNames) || {};
-    return map[id] || id;
-  }).filter(Boolean);
-  return names.length ? `${sender} to ${names.join(" & ")}` : sender;
-}
-
-function taipeiHourNow() {
-  try {
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Taipei", hour: "2-digit", hour12: false
-    }).formatToParts(new Date());
-    const h = parts.find((p) => p.type === "hour");
-    return h ? Number(h.value) : new Date().getHours();
-  } catch (_e) {
-    return new Date().getHours();
-  }
-}
-
-function speakLoginGuide() {
-  try {
-    if (!("speechSynthesis" in window)) return;
-    const h = taipeiHourNow();
-    const greeting = (h >= 5 && h < 11) ? "早安" : (h >= 11 && h < 18) ? "午安" : "晚安";
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(`${greeting}，指定請按溫室，確認請按功能表四。`);
-    u.lang = "zh-TW";
-    u.rate = 0.95;
-    window.speechSynthesis.speak(u);
-  } catch (e) {
-    console.warn("登入語音播報不可用", e);
-  }
-}
-
-function installVersionAutoUpdater() {
-  let checking = false;
-  let postponedUntil = 0;
-  let promptOpen = false;
-
-  const forceReload = () => {
-    try {
-      const u = new URL(window.location.href);
-      u.searchParams.set("__app_update", String(Date.now()));
-      window.location.replace(u.toString());
-    } catch (_e) {
-      window.location.reload();
-    }
-  };
-
-  const showPrompt = (newVersion) => {
-    if (promptOpen || Date.now() < postponedUntil) return;
-    promptOpen = true;
-
-    const wrap = document.createElement("div");
-    wrap.id = "__app_update_prompt";
-    wrap.style.cssText = [
-      "position:fixed","left:14px","right:14px","bottom:18px","z-index:2147483647",
-      "background:#FFFDF8","color:#2B2119","border:2px solid #4E7C6B",
-      "border-radius:16px","box-shadow:0 12px 32px rgba(0,0,0,.22)",
-      "padding:14px","font-family:Inter,sans-serif"
-    ].join(";");
-
-    const title = document.createElement("div");
-    title.style.cssText = "font-weight:800;font-size:15px;margin-bottom:5px";
-    title.textContent = "發現新版本";
-
-    const msg = document.createElement("div");
-    msg.style.cssText = "font-size:12px;line-height:1.55;color:#6B5D50;margin-bottom:10px";
-    msg.textContent = `目前 ${APP_VERSION}，伺服器已有 ${newVersion}。登入狀態會保留，系統將在 10 秒後自動更新。`;
-
-    const row = document.createElement("div");
-    row.style.cssText = "display:flex;gap:8px";
-
-    const later = document.createElement("button");
-    later.type = "button";
-    later.textContent = "稍後";
-    later.style.cssText = "flex:1;padding:10px;border-radius:10px;border:1px solid #E4D9C8;background:#F7F3EA;color:#2B2119;font-weight:700";
-
-    const now = document.createElement("button");
-    now.type = "button";
-    now.textContent = "立即更新";
-    now.style.cssText = "flex:1;padding:10px;border-radius:10px;border:0;background:#4E7C6B;color:white;font-weight:800";
-
-    row.appendChild(later);
-    row.appendChild(now);
-    wrap.appendChild(title);
-    wrap.appendChild(msg);
-    wrap.appendChild(row);
-    document.body.appendChild(wrap);
-
-    const timer = window.setTimeout(forceReload, 10000);
-    now.onclick = () => {
-      window.clearTimeout(timer);
-      forceReload();
-    };
-    later.onclick = () => {
-      window.clearTimeout(timer);
-      postponedUntil = Date.now() + 10 * 60 * 1000;
-      promptOpen = false;
-      wrap.remove();
-    };
-  };
-
-  const check = async () => {
-    if (checking || promptOpen || Date.now() < postponedUntil) return;
-    checking = true;
-    try {
-      const u = new URL(window.location.href);
-      u.searchParams.set("__version_check", String(Date.now()));
-      const r = await fetch(u.toString(), { cache: "no-store" });
-      if (!r.ok) return;
-      const text = await r.text();
-      const m = text.match(/const\s+APP_VERSION\s*=\s*["']([^"']+)["']/);
-      if (m && m[1] && m[1] !== APP_VERSION) showPrompt(m[1]);
-    } catch (e) {
-      console.warn("版本檢查略過", e);
-    } finally {
-      checking = false;
-    }
-  };
-
-  window.setTimeout(check, 2500);
-  window.setInterval(check, 10 * 60 * 1000);
-}
-
 
 const WORK_ITEMS = [
   { id: 1, name: "打芽(側)", type: "level" },
@@ -4048,13 +3917,158 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId }) {
 //
 // 指令：耗材與報表入口改為「主層年月資料夾 → 次層10個表格選項」，
 // 表一、表二各自獨立呈現在自己的畫面，不互相內嵌跳轉按鈕，按鈕統一規整排列。
+
+// 功能表7・表六：施肥用量統計（讀取各溫室 spraylog，不改動原始紀錄）
+function FertilizerUsageReport({ year, month, onBack }) {
+  const now = new Date();
+  const initialYm = `${Number(year) || now.getFullYear()}-${String(Number(month) || now.getMonth() + 1).padStart(2, "0")}`;
+  const [startYm, setStartYm] = useState(initialYm);
+  const [endYm, setEndYm] = useState(initialYm);
+  const [rows, setRows] = useState([]);
+  const [monthRows, setMonthRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const monthOptions = [];
+  for (let y = 2020; y <= now.getFullYear() + 1; y += 1) {
+    for (let m = 1; m <= 12; m += 1) monthOptions.push(`${y}-${String(m).padStart(2, "0")}`);
+  }
+  const monthsBetween = (a, b) => {
+    if (!a || !b || a > b) return [];
+    const out = [];
+    let y = Number(a.slice(0, 4)), m = Number(a.slice(5, 7));
+    const ey = Number(b.slice(0, 4)), em = Number(b.slice(5, 7));
+    while (y < ey || (y === ey && m <= em)) {
+      out.push(`${y}-${String(m).padStart(2, "0")}`);
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+    return out;
+  };
+  const unitOf = (dosage) => {
+    const s = String(dosage || "");
+    if (s.includes("公斤")) return "公斤";
+    if (s.includes("公克") || /(^|[^公])克/.test(s)) return "公克";
+    if (s.includes("公升")) return "公升";
+    if (/ml|毫升/i.test(s)) return "毫升";
+    if (s.includes("包")) return "包";
+    return "份";
+  };
+  const fmtQty = (v) => Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100);
+
+  const runReport = async () => {
+    const months = monthsBetween(startYm, endYm);
+    if (!months.length) { setMsg("結束月份不可早於開始月份"); setRows([]); setMonthRows([]); return; }
+    setLoading(true); setMsg("");
+    try {
+      await window.firebaseReady;
+      let fertilizerList = [];
+      try {
+        const listRes = await window.storage.get(FERTILIZER_LIST_KEY, true);
+        fertilizerList = listRes ? JSON.parse(listRes.value) : [];
+      } catch (_e) {}
+      const fertilizerCodes = new Set(fertilizerList.map((f) => String(f.code || "").toUpperCase()));
+      const jobs = [];
+      months.forEach((ym) => ZONES.forEach((zone) => jobs.push({ ym, zone })));
+      const loaded = await runWithLimit(jobs, 6, async (job) => {
+        try {
+          const res = await window.storage.get(`spraylog:${job.zone.id}:${job.ym}`);
+          return { ...job, logs: res ? JSON.parse(res.value) : {} };
+        } catch (_e) { return { ...job, logs: {} }; }
+      });
+      const totals = {};
+      const monthly = {};
+      loaded.forEach(({ ym, zone, logs }) => {
+        Object.values(logs || {}).forEach((entries) => {
+          (Array.isArray(entries) ? entries : []).forEach((entry) => {
+            const code = String(entry.code || "").toUpperCase();
+            if (entry.type !== "fertilizer" && !fertilizerCodes.has(code)) return;
+            const qty = Number(entry.qty == null || entry.qty === "" ? 1 : entry.qty);
+            if (!Number.isFinite(qty) || qty <= 0) return;
+            const unit = unitOf(entry.dosage);
+            const key = `${code || entry.name || "未命名"}|${unit}`;
+            if (!totals[key]) totals[key] = { code, name: entry.name || code || "未命名肥料", unit, zones: {}, total: 0 };
+            totals[key].zones[zone.id] = (totals[key].zones[zone.id] || 0) + qty;
+            totals[key].total += qty;
+            const mk = `${ym}|${key}`;
+            if (!monthly[mk]) monthly[mk] = { ym, code, name: entry.name || code || "未命名肥料", unit, total: 0 };
+            monthly[mk].total += qty;
+          });
+        });
+      });
+      setRows(Object.values(totals).sort((a,b) => (a.code || a.name).localeCompare(b.code || b.name, "zh-Hant")));
+      setMonthRows(Object.values(monthly).sort((a,b) => a.ym.localeCompare(b.ym) || (a.code || a.name).localeCompare(b.code || b.name, "zh-Hant")));
+      if (!Object.keys(totals).length) setMsg("所選月份範圍沒有施肥紀錄");
+    } catch (e) {
+      console.warn("fertilizer usage report failed", e);
+      setRows([]); setMonthRows([]); setMsg("統計讀取失敗，請確認網路或 Firebase 連線");
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { runReport(); }, []);
+  const totalsByUnit = rows.reduce((out, r) => { out[r.unit] = (out[r.unit] || 0) + r.total; return out; }, {});
+  const totalByUnitText = Object.entries(totalsByUnit).map(([unit, qty]) => `${fmtQty(qty)}${unit}`).join("／") || "—";
+
+  return React.createElement('div',{className:"min-h-screen flex flex-col",style:{background:C.cream}},
+    React.createElement(NavBar,{backLabel:"回表格",onBack:onBack}),
+    React.createElement('div',{className:"max-w-5xl w-full mx-auto px-4 py-5"},
+      React.createElement('div',{className:"mb-4"},
+        React.createElement('div',{style:{fontFamily:"Inter",fontWeight:800,fontSize:20,color:C.ink}},"表六・施肥用量統計"),
+        React.createElement('div',{className:"text-xs mt-1",style:{color:C.inkSoft,fontFamily:"Inter"}},"依各溫室施肥消毒紀錄表，跨月份累計肥料用量；藥品不列入")
+      ),
+      React.createElement('div',{className:"p-4 rounded-2xl mb-4",style:{background:C.paper,border:`1px solid ${C.line}`}},
+        React.createElement('div',{className:"grid grid-cols-2 gap-3"},
+          React.createElement('label',{className:"text-xs",style:{color:C.inkSoft,fontFamily:"Inter"}},"開始月份",
+            React.createElement('select',{value:startYm,onChange:(e)=>setStartYm(e.target.value),className:"w-full mt-1 px-3 py-2 rounded-lg text-sm",style:{background:C.paper,border:`1px solid ${C.line}`,color:C.ink}},monthOptions.map((ym)=>React.createElement('option',{key:ym,value:ym},ym.replace("-","年")+"月")))
+          ),
+          React.createElement('label',{className:"text-xs",style:{color:C.inkSoft,fontFamily:"Inter"}},"結束月份",
+            React.createElement('select',{value:endYm,onChange:(e)=>setEndYm(e.target.value),className:"w-full mt-1 px-3 py-2 rounded-lg text-sm",style:{background:C.paper,border:`1px solid ${C.line}`,color:C.ink}},monthOptions.map((ym)=>React.createElement('option',{key:ym,value:ym},ym.replace("-","年")+"月")))
+          )
+        ),
+        React.createElement('button',{onClick:runReport,disabled:loading,className:"w-full mt-3 py-3 rounded-xl text-sm",style:{background:C.tableColor,color:"white",fontFamily:"Inter",fontWeight:700,opacity:loading?.6:1}},loading?"統計中…":"統計所選月份")
+      ),
+      msg && React.createElement('div',{className:"p-3 rounded-xl mb-4 text-sm",style:{background:"#FFF8E7",color:C.inkSoft,border:`1px solid ${C.line}`}},msg),
+      React.createElement('div',{className:"grid grid-cols-2 gap-3 mb-4"},
+        React.createElement('div',{className:"p-3 rounded-xl",style:{background:C.paper,border:`1px solid ${C.line}`}},React.createElement('div',{className:"text-xs",style:{color:C.inkSoft}},"月份範圍"),React.createElement('div',{style:{fontWeight:800,color:C.ink,marginTop:4}},startYm===endYm?startYm:`${startYm}～${endYm}`)),
+        React.createElement('div',{className:"p-3 rounded-xl",style:{background:C.paper,border:`1px solid ${C.line}`}},React.createElement('div',{className:"text-xs",style:{color:C.inkSoft}},"肥料項目／數量合計"),React.createElement('div',{style:{fontWeight:800,color:C.ink,marginTop:4}},`${rows.length} 項／${totalByUnitText}`))
+      ),
+      React.createElement('div',{className:"rounded-2xl overflow-auto mb-5",style:{background:C.paper,border:`1px solid ${C.line}`}},
+        React.createElement('table',{style:{width:"100%",minWidth:720,borderCollapse:"collapse",fontSize:12}},
+          React.createElement('thead',null,React.createElement('tr',null,
+            ["肥料","單位",...ZONES.map((z)=>z.short||z.name),"總量"].map((h)=>React.createElement('th',{key:h,style:{padding:"10px 8px",borderBottom:`1px solid ${C.line}`,background:"#F3F0E7",textAlign:h==="肥料"?"left":"center"}},h))
+          )),
+          React.createElement('tbody',null,rows.map((r)=>React.createElement('tr',{key:`${r.code}|${r.unit}`},
+            React.createElement('td',{style:{padding:"9px 8px",borderBottom:`1px solid ${C.line}`,fontWeight:700}},`${r.code ? r.code+" " : ""}${r.name}`),
+            React.createElement('td',{style:{padding:"9px 8px",borderBottom:`1px solid ${C.line}`,textAlign:"center"}},r.unit),
+            ...ZONES.map((z)=>React.createElement('td',{key:z.id,style:{padding:"9px 8px",borderBottom:`1px solid ${C.line}`,textAlign:"center"}},r.zones[z.id]?fmtQty(r.zones[z.id]):"—")),
+            React.createElement('td',{style:{padding:"9px 8px",borderBottom:`1px solid ${C.line}`,textAlign:"center",fontWeight:800,color:C.tableColor}},fmtQty(r.total))
+          )))
+        )
+      ),
+      React.createElement('div',{className:"mb-2",style:{fontWeight:800,color:C.ink}},"各月份明細"),
+      React.createElement('div',{className:"rounded-2xl overflow-auto",style:{background:C.paper,border:`1px solid ${C.line}`}},
+        React.createElement('table',{style:{width:"100%",borderCollapse:"collapse",fontSize:12}},
+          React.createElement('thead',null,React.createElement('tr',null,["月份","肥料","用量"].map((h)=>React.createElement('th',{key:h,style:{padding:"9px",background:"#F3F0E7",borderBottom:`1px solid ${C.line}`,textAlign:h==="肥料"?"left":"center"}},h)))),
+          React.createElement('tbody',null,monthRows.map((r)=>React.createElement('tr',{key:`${r.ym}|${r.code}|${r.unit}`},
+            React.createElement('td',{style:{padding:"8px",borderBottom:`1px solid ${C.line}`,textAlign:"center"}},r.ym),
+            React.createElement('td',{style:{padding:"8px",borderBottom:`1px solid ${C.line}`}},`${r.code ? r.code+" " : ""}${r.name}`),
+            React.createElement('td',{style:{padding:"8px",borderBottom:`1px solid ${C.line}`,textAlign:"center",fontWeight:700}},`${fmtQty(r.total)} ${r.unit}`)
+          )))
+        )
+      )
+    )
+  );
+}
+
+
 const REPORT_SLOTS = [
   { no: "一", label: "耗材匯總表", key: "materials", ready: true },
   { no: "二", label: "年度計畫表", key: "annual", ready: true },
   { no: "三", label: "分區耗材統計", key: "zoneMaterials", ready: true },
   { no: "四", label: "留言版內容", key: "noticeBoard", ready: true },
   { no: "五", label: "尚未設計", key: null, ready: false },
-  { no: "六", label: "尚未設計", key: null, ready: false },
+  { no: "六", label: "施肥用量統計", key: "fertilizerUsage", ready: true },
   { no: "七", label: "尚未設計", key: null, ready: false },
   { no: "八", label: "尚未設計", key: null, ready: false },
   { no: "九", label: "尚未設計", key: null, ready: false },
@@ -4083,6 +4097,9 @@ function ReportsHub({ onBack }) {
   }
   if (openKey === "noticeBoard") {
     return React.createElement(NoticeBoardArchive, { year: yearSel, month: monthSel, onBack: () => setOpenKey(null),} );
+  }
+  if (openKey === "fertilizerUsage") {
+    return React.createElement(FertilizerUsageReport, { year: yearSel, month: monthSel, onBack: () => setOpenKey(null),} );
   }
 
   return (
@@ -4159,17 +4176,45 @@ function ReportsHub({ onBack }) {
 }
 
 function MonthlyReport({ year, month, onBack }) {
+  const initialYm = `${year}-${String(month).padStart(2, "0")}`;
+  const [startYm, setStartYm] = useState(initialYm);
+  const [endYm, setEndYm] = useState(initialYm);
   const [rows, setRows] = useState(null); // null = 尚未彙總；{ [rowKey]: { [zoneId]: number } } = 已彙總結果
-  const [computedYm, setComputedYm] = useState(""); // 目前畫面顯示的資料實際對應哪個年月
+  const [computedYm, setComputedYm] = useState(""); // 目前畫面顯示的資料實際對應年月範圍
   const [updating, setUpdating] = useState(false);
   const [lastUpdated, setLastUpdated] = useState("");
   const [printVersion, setPrintVersion] = useState(0);
   const bumpPrint = () => setPrintVersion((v) => v + 1);
+  const monthsBetween = (start, end) => {
+    if (!start || !end || start > end) return [];
+    const result = [];
+    let y = Number(start.slice(0, 4));
+    let m = Number(start.slice(5, 7));
+    const endY = Number(end.slice(0, 4));
+    const endM = Number(end.slice(5, 7));
+    while (y < endY || (y === endY && m <= endM)) {
+      result.push(`${y}-${String(m).padStart(2, "0")}`);
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+    return result;
+  };
+  const rangeLabel = (start, end) => start === end ? start : `${start}～${end}`;
+  const changeRange = (setter) => (e) => {
+    setter(e.target.value);
+    setRows(null);
+    setComputedYm("");
+    setLastUpdated("");
+  };
 
   // 指令：平時不運算、不呼叫，只有按「更新」才彙總一次，減少不必要的 storage 請求
   const runUpdate = async () => {
+    const months = monthsBetween(startYm, endYm);
+    if (!months.length) {
+      alert("結束月份不可早於開始月份");
+      return;
+    }
     setUpdating(true);
-    const ym = `${year}-${String(month).padStart(2, "0")}`;
     const totals = {};
     REPORT_ROWS.forEach((r) => { totals[r.key] = {}; });
     try {
@@ -4180,8 +4225,10 @@ function MonthlyReport({ year, month, onBack }) {
         if (isNaN(n)) return;
         totals[rowKey][zoneId] = (totals[rowKey][zoneId] || 0) + n;
       };
-      // 6/7/8已經改成整區共用，改成每區各讀一筆 zonework:{zoneId}:{ym}，不用再逐格掃描
-      await runWithLimit(ZONES, 6, async (z) => {
+      // 依所選月份範圍，逐月讀取各區 zonework 並沿用原表一算法累加。
+      const jobs = [];
+      months.forEach((ym) => ZONES.forEach((z) => jobs.push({ ym, z })));
+      await runWithLimit(jobs, 6, async ({ ym, z }) => {
         try {
           const res = await window.storage.get(`zonework:${z.id}:${ym}`, true);
           if (!res) return;
@@ -4204,14 +4251,17 @@ function MonthlyReport({ year, month, onBack }) {
               const p = stamp.split(" ")[0].split("T")[0].split("-");
               if (p.length >= 2) { hy = Number(p[0]); hm = Number(p[1]); }
             }
-            if (hy !== year || hm !== month) return;
+            const targetParts = ym.split("-");
+            const targetYear = Number(targetParts[0]);
+            const targetMonth = Number(targetParts[1]);
+            if (hy !== targetYear || hm !== targetMonth) return;
 
             add(h.rowKey, z.id, qty);
           });
         } catch (e) { console.error(e); }
       });
       setRows(totals);
-      setComputedYm(ym);
+      setComputedYm(rangeLabel(startYm, endYm));
       setLastUpdated(nowStamp());
     } catch (e) {
       console.error(e);
@@ -4281,7 +4331,7 @@ function MonthlyReport({ year, month, onBack }) {
         , React.createElement('div', { className: "flex items-center justify-between gap-2 flex-wrap"    ,}
           , React.createElement('div', null
             , React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 17, color: C.ink },}, "表一・耗材匯總表")
-            , React.createElement('span', { className: "ml-2 text-xs" , style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, year, "-", String(month).padStart(2, "0"))
+            , React.createElement('span', { className: "ml-2 text-xs" , style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, rangeLabel(startYm, endYm))
           )
           , React.createElement('div', { className: "flex items-center gap-2 flex-wrap"   ,}
             , React.createElement('button', {
@@ -4304,13 +4354,21 @@ function MonthlyReport({ year, month, onBack }) {
             )
           )
         )
-        , React.createElement('div', { className: "text-xs mt-1" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "依表格6(補水)／7(施肥)／8(其他資材) 各品項當月數量彙總，六分區欄位對照。按「更新」才會彙總計算，平時不自動運算。"
+        , React.createElement('div', { className: "grid grid-cols-2 gap-2 mt-3 no-print" },
+            React.createElement('label', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "開始月份",
+              React.createElement('input', { type: "month", value: startYm, min: "2020-01", max: "2035-12", onChange: changeRange(setStartYm), className: "w-full mt-1 px-3 py-2 rounded-lg text-sm", style: { border: `1px solid ${C.line}`, background: C.paper, color: C.ink } })
+            ),
+            React.createElement('label', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter" } }, "結束月份",
+              React.createElement('input', { type: "month", value: endYm, min: "2020-01", max: "2035-12", onChange: changeRange(setEndYm), className: "w-full mt-1 px-3 py-2 rounded-lg text-sm", style: { border: `1px solid ${C.line}`, background: C.paper, color: C.ink } })
+            )
+          )
+        , React.createElement('div', { className: "text-xs mt-2" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "依表格6(補水)／7(施肥)／8(其他資材) 各品項在所選月份範圍累積，六分區欄位與原計算方式不變。按「更新」才會彙總計算。"
 
         )
       )
 
       , React.createElement('div', { className: "flex-1 overflow-auto px-3 py-2 print-area"    ,}
-        , React.createElement('div', { className: "text-sm font-bold mb-2"  , style: { color: C.ink, fontFamily: "Inter" },}, "施肥數量月報表")
+        , React.createElement('div', { className: "text-sm font-bold mb-2"  , style: { color: C.ink, fontFamily: "Inter" },}, startYm === endYm ? "施肥數量月報表" : "施肥數量期間彙總表")
         , rows === null ? (
           React.createElement('div', { className: "text-center py-14 text-sm"  , style: { color: C.inkSoft, fontFamily: "Inter" },}, "尚未彙總，請按上方「🔄 更新」查看資料"
 
@@ -5613,7 +5671,7 @@ function ZoneNoticeBoard({ role, loggedInId }) {
                   , React.createElement(MessageCircle, { size: 16, color: unread ? C.alert : C.leaf,} )
                 )
                 , React.createElement('span', { className: "flex-1 min-w-0" ,}
-                  , React.createElement('span', { className: "block text-xs mb-0.5"  , style: { color: C.inkSoft, fontFamily: "Inter" },}, noticeRouteText(n), " · ", n.postedAt)
+                  , React.createElement('span', { className: "block text-xs mb-0.5"  , style: { color: C.inkSoft, fontFamily: "Inter" },}, n.senderName, " · "  , n.postedAt)
                   , React.createElement('span', { className: "block truncate" , style: { fontFamily: "Inter", fontWeight: 600, fontSize: 14, color: unread ? C.alert : C.ink },}, n.text)
                 )
                 , unread && (
@@ -5736,7 +5794,7 @@ function ZoneNoticeBoard({ role, loggedInId }) {
             ) : (
               React.createElement('div', { className: "overflow-y-auto flex-1 min-h-0"  ,}
                 , React.createElement('div', { className: "text-xs mb-1" , style: { color: C.inkSoft, fontFamily: "Inter" },}
-                  , noticeRouteText(selected), " · ", selected.postedAt, selected.editedAt ? `（已於 ${selected.editedAt} 修改）` : ""
+                  , selected.senderName, " · "  , selected.postedAt, selected.editedAt ? `（已於 ${selected.editedAt} 修改）` : ""
                 )
                 , React.createElement('div', { className: "text-sm mb-2 p-3 rounded-xl"   , style: { background: C.cream, color: C.ink, fontFamily: "Inter", lineHeight: 1.6 },}, selected.text)
                 , React.createElement('div', { className: "flex items-center gap-2 mb-4"   ,}
@@ -6856,11 +6914,6 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   };
   useEffect(() => { refreshPendingCount(); }, []);
   useEffect(() => { if (loggedInId) loadCurrentPersonPerm(loggedInId); }, [loggedInId]);
-  useEffect(() => {
-    if (!loggedInId) return;
-    const t = window.setTimeout(() => speakLoginGuide(), 650);
-    return () => window.clearTimeout(t);
-  }, [loggedInId]);
 
   const handleLogin = (r, id) => { setRole(r); setLoggedInId(id); loadCurrentPersonPerm(id); };
   const handleLogout = () => {
@@ -7075,7 +7128,6 @@ const root = ReactDOM.createRoot(rootEl);
 root.render(React.createElement(App, null ));
 
 window.__farmAppMounted = true;
-installVersionAutoUpdater();
 </script>
 </body>
 </html>
