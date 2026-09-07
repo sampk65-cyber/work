@@ -5364,6 +5364,7 @@ function calcBlockHours(block) {
   };
 }
 // V4.3：六個溫室 GPS 距離判定；最近溫室超過100公尺標示異常
+// 打卡定位：比對六個溫室，最近距離 >100m 標示異常
 function geoDistanceMeters(lat1, lon1, lat2, lon2) {
   const R=6371000, rad=(v)=>v*Math.PI/180;
   const p1=rad(lat1), p2=rad(lat2), dp=rad(lat2-lat1), dl=rad(lon2-lon1);
@@ -5373,15 +5374,30 @@ function geoDistanceMeters(lat1, lon1, lat2, lon2) {
 function classifyPunchGeo(geo) {
   if(!geo||geo.lat==null||geo.lon==null) return geo;
   let nearest=null;
-  ZONES.forEach((z)=>{ const d=geoDistanceMeters(+geo.lat,+geo.lon,+z.lat,+z.lon); if(!nearest||d<nearest.distanceM) nearest={zoneId:z.id,zoneName:z.name,distanceM:Math.round(d)}; });
+  ZONES.forEach((z)=>{
+    const d=geoDistanceMeters(+geo.lat,+geo.lon,+z.lat,+z.lon);
+    if(!nearest||d<nearest.distanceM) nearest={zoneId:z.id,zoneName:z.name,distanceM:Math.round(d)};
+  });
   return {...geo,nearestZoneId:nearest&&nearest.zoneId,nearestZoneName:nearest&&nearest.zoneName,distanceM:nearest&&nearest.distanceM,locationAbnormal:!!(nearest&&nearest.distanceM>100)};
 }
+function normalizePunchGeo(g) {
+  if(!g||g.lat==null||g.lon==null) return g;
+  return (g.nearestZoneName && g.distanceM!=null) ? g : classifyPunchGeo(g);
+}
 function geoLabel(g) {
+  g=normalizePunchGeo(g);
   if(!g) return "—"; if(g.error) return "無定位"; if(g.lat==null) return "—";
   return `${g.nearestZoneName||"最近溫室"}${g.distanceM!=null?" "+g.distanceM+"m":""}`;
 }
 function recordGeoSummary(rec) {
-  const out=[]; ["regular","overtime"].forEach((kind)=>{ const gm=(rec&&rec[kind]&&rec[kind].geo)||{}; ATTEND_SLOTS.forEach((s)=>{const g=gm[s.key]; if(g&&g.lat!=null) out.push({label:(kind==="overtime"?"加班":"正常")+s.label,...g});});});
+  const out=[];
+  ["regular","overtime"].forEach((kind)=>{
+    const gm=(rec&&rec[kind]&&rec[kind].geo)||{};
+    ATTEND_SLOTS.forEach((s)=>{
+      const raw=gm[s.key], g=normalizePunchGeo(raw);
+      if(g&&g.lat!=null) out.push({label:(kind==="overtime"?"加班":"正常")+s.label,...g});
+    });
+  });
   if(!out.length) return {text:"—",abnormal:false};
   return {text:out.map((g)=>`${g.label}:${geoLabel(g)}`).join(" / "),abnormal:out.some((g)=>g.locationAbnormal)};
 }
@@ -5531,11 +5547,11 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
       const timeText = (p) => `${(p && p.amIn) || "—"}-${(p && p.amOut) || "—"} / ${(p && p.pmIn) || "—"}-${(p && p.pmOut) || "—"}`;
 
       const data = [
-        ["出勤紀錄表", "", "", "", "", ""],
-        [`人員：${personName || personId || ""}`, "", `代號：${personId || ""}`, "", `${recYear}年${recMonth}月`, ""],
+        ["出勤紀錄表", "", "", "", "", "", ""],
+        [`人員：${personName || personId || ""}`, "", `代號：${personId || ""}`, "", `${recYear}年${recMonth}月`, "", ""],
         [],
-        ["日", "正常上班時間", "加班時間", "正常上班工時", "（1＋2）超過7小時", "加班工時"],
-        ["", "（第1輪＋第2輪）", "", "（第1輪＋第2輪）", "", ""],
+        ["日", "正常上班時間", "加班時間", "正常上班工時", "（1＋2）超過7小時", "加班工時", "打卡定位"],
+        ["", "（第1輪＋第2輪）", "", "（第1輪＋第2輪）", "", "", ""],
       ];
 
       rows.forEach((r) => {
@@ -5547,20 +5563,21 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
         const regHours = r.rh && r.rh.totalNum != null ? Number(r.rh.totalNum) : "";
         const over7 = Number(r.over7 || 0);
         const otHours = r.oh && r.oh.totalNum != null ? Number(r.oh.totalNum) : "";
-        data.push([r.d, normal, overtime, regHours, over7, otHours]);
+        const geoText = recordGeoSummary(r.rec).text;
+        data.push([r.d, normal, overtime, regHours, over7, otHours, geoText]);
       });
 
-      data.push(["合計", "", "", Number(sumReg || 0), Number(sumOver7 || 0), Number(sumOt || 0)]);
+      data.push(["合計", "", "", Number(sumReg || 0), Number(sumOver7 || 0), Number(sumOt || 0), ""]);
 
       const ws = XLSX.utils.aoa_to_sheet(data);
       ws["!cols"] = [
-        { wch: 6 }, { wch: 32 }, { wch: 28 }, { wch: 20 }, { wch: 18 }, { wch: 14 }
+        { wch: 6 }, { wch: 32 }, { wch: 28 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 48 }
       ];
       ws["!merges"] = [
-        XLSX.utils.decode_range("A1:F1"),
+        XLSX.utils.decode_range("A1:G1"),
         XLSX.utils.decode_range("A2:B2"),
         XLSX.utils.decode_range("C2:D2"),
-        XLSX.utils.decode_range("E2:F2"),
+        XLSX.utils.decode_range("E2:G2"),
         XLSX.utils.decode_range("A4:A5"),
         XLSX.utils.decode_range("C4:C5"),
         XLSX.utils.decode_range("E4:E5"),
@@ -6181,7 +6198,8 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                         ),
                         React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono" } }, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
                         React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: r.over7 > 0 ? C.alert : C.inkSoft, fontFamily: "IBM Plex Mono", fontWeight: r.over7 > 0 ? 800 : 500 } }, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
-                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—")
+                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—"),
+                        (()=>{ const gs=recordGeoSummary(byDate[r.dk]); return React.createElement('td',{className:"px-1 py-1.5",style:{border:`1px solid ${C.line}`,color:gs.abnormal?"#C62828":C.inkSoft,fontWeight:gs.abnormal?800:500,fontSize:8,lineHeight:1.25,minWidth:150}},gs.text); })()
                       )),
                       React.createElement('tr', { style: { background: `${C.wine}10` } },
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: C.ink } }, "合計"),
@@ -6189,7 +6207,8 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}` } }, "—"),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono" } }, sumReg.toFixed(2)),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: C.alert, fontFamily: "IBM Plex Mono" } }, sumOver7.toFixed(2)),
-                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 900, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, sumOt.toFixed(2))
+                        React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 900, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, sumOt.toFixed(2)),
+                        React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—")
                       )
                     )
                   )
@@ -6217,7 +6236,8 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                 ),
                 React.createElement('div', { className: "text-xs", style: { color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } },
                   "加 ", (op.amIn || "—"), "→", (op.amOut || "—"), " / ", (op.pmIn || "—"), "→", (op.pmOut || "—")
-                )
+                ),
+                (()=>{ const gs=recordGeoSummary(rec); return React.createElement('div',{className:"text-xs mt-1",style:{color:gs.abnormal?"#C62828":C.inkSoft,fontFamily:"Inter",fontWeight:gs.abnormal?800:600,lineHeight:1.35}},"定位：",gs.text); })()
               );
             })
           ),
@@ -6395,6 +6415,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                           React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono", fontSize: 8 } }, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
                           React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: r.over7 > 0 ? C.alert : C.inkSoft, fontFamily: "IBM Plex Mono", fontWeight: r.over7 > 0 ? 800 : 500, fontSize: 8 } }, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
                           React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono", fontSize: 8 } }, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—"),
+                          (()=>{ const gs=recordGeoSummary(r.rec); return React.createElement('td',{className:"px-0.5 py-1.5",style:{border:`1px solid ${C.line}`,color:gs.abnormal?"#C62828":C.inkSoft,fontWeight:gs.abnormal?800:500,fontSize:7,lineHeight:1.15,wordBreak:"break-word"}},gs.text); })(),
                           React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}` } },
                             React.createElement('button', {
                               onClick: () => openAttendanceEditor(supervisorPersonId, r.date, r.rec),
@@ -6416,6 +6437,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontWeight: 800, fontFamily: "IBM Plex Mono" } }, sumReg.toFixed(2)),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: C.alert, fontWeight: 800, fontFamily: "IBM Plex Mono" } }, sumOver7.toFixed(2)),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontWeight: 900, fontFamily: "IBM Plex Mono" } }, sumOt.toFixed(2)),
+                        React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—"),
                         React.createElement('td', { style: { border: `1px solid ${C.line}` } })
                       )
                     )
@@ -6469,7 +6491,8 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                         React.createElement('td', null, "—"),
                         React.createElement('td', null, sumReg.toFixed(2)),
                         React.createElement('td', null, sumOver7.toFixed(2)),
-                        React.createElement('td', null, sumOt.toFixed(2))
+                        React.createElement('td', null, sumOt.toFixed(2)),
+                        React.createElement('td', null, "—")
                       )
                     )
                   )
