@@ -5399,7 +5399,12 @@ function recordGeoSummary(rec) {
     });
   });
   if(!out.length) return {text:"—",abnormal:false};
-  return {text:out.map((g)=>`${g.label}:${geoLabel(g)}`).join(" / "),abnormal:out.some((g)=>g.locationAbnormal)};
+  const abnormal=out.filter((g)=>g.locationAbnormal);
+  if(!abnormal.length) return {text:"正常",abnormal:false};
+  return {
+    text:abnormal.map((g)=>`${g.label}：${geoLabel(g)}（超出100m）`).join(" / "),
+    abnormal:true
+  };
 }
 
 function AttendanceMenu({ onBack, role, loggedInId }) {
