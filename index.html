@@ -5552,11 +5552,11 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
       const timeText = (p) => `${(p && p.amIn) || "—"}-${(p && p.amOut) || "—"} / ${(p && p.pmIn) || "—"}-${(p && p.pmOut) || "—"}`;
 
       const data = [
-        ["出勤紀錄表", "", "", "", "", "", ""],
-        [`人員：${personName || personId || ""}`, "", `代號：${personId || ""}`, "", `${recYear}年${recMonth}月`, "", ""],
+        ["出勤紀錄表", "", "", "", "", "", "", ""],
+        [`人員：${personName || personId || ""}`, "", `代號：${personId || ""}`, "", `${recYear}年${recMonth}月`, "", "", ""],
         [],
-        ["日", "正常上班時間", "加班時間", "正常上班工時", "（1＋2）超過7小時", "加班工時", "打卡定位"],
-        ["", "（第1輪＋第2輪）", "", "（第1輪＋第2輪）", "", "", ""],
+        ["日", "正常上班時間", "加班時間", "正常上班工時", "（1＋2）超過7小時", "加班工時", "請假", "打卡定位"],
+        ["", "（第1輪＋第2輪）", "", "（第1輪＋第2輪）", "", "", "", ""],
       ];
 
       rows.forEach((r) => {
@@ -5568,26 +5568,58 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
         const regHours = r.rh && r.rh.totalNum != null ? Number(r.rh.totalNum) : "";
         const over7 = Number(r.over7 || 0);
         const otHours = r.oh && r.oh.totalNum != null ? Number(r.oh.totalNum) : "";
+        const leaveObj = r.rec && r.rec.leave;
+        const leaveText = leaveObj && leaveObj.type ? (leaveObj.type + (leaveObj.type === "彈性工時" && leaveObj.hours ? `（${leaveObj.hours}小時）` : "")) : "—";
         const geoText = recordGeoSummary(r.rec).text;
-        data.push([r.d, normal, overtime, regHours, over7, otHours, geoText]);
+        data.push([r.d, normal, overtime, regHours, over7, otHours, leaveText, geoText]);
       });
 
-      data.push(["合計", "", "", Number(sumReg || 0), Number(sumOver7 || 0), Number(sumOt || 0), ""]);
+      data.push(["合計", "", "", Number(sumReg || 0), Number(sumOver7 || 0), Number(sumOt || 0), "", ""]);
 
       const ws = XLSX.utils.aoa_to_sheet(data);
+      // A4 直式正式表格：一頁寬、置中、適當行高與欄寬。
       ws["!cols"] = [
-        { wch: 6 }, { wch: 32 }, { wch: 28 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 48 }
+        { wch: 5 }, { wch: 19 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 27 }
       ];
+      ws["!rows"] = data.map((_, i) => ({ hpt: i === 0 ? 28 : i === 1 ? 22 : i === 2 ? 9 : (i === 3 || i === 4) ? 30 : 25 }));
       ws["!merges"] = [
-        XLSX.utils.decode_range("A1:G1"),
+        XLSX.utils.decode_range("A1:H1"),
         XLSX.utils.decode_range("A2:B2"),
         XLSX.utils.decode_range("C2:D2"),
-        XLSX.utils.decode_range("E2:G2"),
+        XLSX.utils.decode_range("E2:H2"),
         XLSX.utils.decode_range("A4:A5"),
         XLSX.utils.decode_range("C4:C5"),
         XLSX.utils.decode_range("E4:E5"),
         XLSX.utils.decode_range("F4:F5"),
+        XLSX.utils.decode_range("G4:G5"),
+        XLSX.utils.decode_range("H4:H5"),
       ];
+      ws["!margins"] = { left: 0.25, right: 0.25, top: 0.35, bottom: 0.35, header: 0.15, footer: 0.15 };
+      ws["!pageSetup"] = { orientation: "portrait", paperSize: 9, fitToWidth: 1, fitToHeight: 0 };
+      ws["!printOptions"] = { horizontalCentered: true, verticalCentered: false };
+      ws["!autofilter"] = undefined;
+      ws["!freeze"] = { xSplit: 0, ySplit: 5, topLeftCell: "A6", activePane: "bottomLeft", state: "frozen" };
+
+      // SheetJS 支援的樣式物件；若瀏覽器端元件支援樣式，開啟檔案即套用。
+      const border = { top:{style:"thin",color:{rgb:"D8D0C4"}}, bottom:{style:"thin",color:{rgb:"D8D0C4"}}, left:{style:"thin",color:{rgb:"D8D0C4"}}, right:{style:"thin",color:{rgb:"D8D0C4"}} };
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = range.s.c; C <= range.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({r:R,c:C});
+          if (!ws[addr]) ws[addr] = { t:"s", v:"" };
+          const cell = ws[addr];
+          cell.s = {
+            font: { name:"Microsoft JhengHei", sz: R === 0 ? 16 : (R === 1 ? 11 : 10), bold: R === 0 || R === 3 || R === 4 || R === range.e.r },
+            alignment: { horizontal:"center", vertical:"center", wrapText:true },
+            border: R >= 3 ? border : undefined
+          };
+          if (R === 3 || R === 4) cell.s.fill = { patternType:"solid", fgColor:{rgb:"F1ECE4"} };
+          if (R === range.e.r) cell.s.fill = { patternType:"solid", fgColor:{rgb:"E7F1EC"} };
+          if (C === 7 && R >= 5 && typeof cell.v === "string" && cell.v.includes("超出100m")) {
+            cell.s.font = { name:"Microsoft JhengHei", sz:10, bold:true, color:{rgb:"C62828"} };
+          }
+        }
+      }
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "出勤紀錄");
@@ -6216,6 +6248,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                           { top: "正常上班工時", sub: "（第1輪＋第2輪）" },
                           { top: "（1＋2）超過7小時" },
                           { top: "加班工時" },
+                          { top: "請假" },
                           { top: "打卡定位" },
                         ].map((h) =>
                           React.createElement('th', { key: h.top, className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: C.ink, fontWeight: 700, fontSize: 9, lineHeight: 1.25 } },
@@ -6237,6 +6270,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                         React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono" } }, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
                         React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: r.over7 > 0 ? C.alert : C.inkSoft, fontFamily: "IBM Plex Mono", fontWeight: r.over7 > 0 ? 800 : 500 } }, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
                         React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—"),
+                        React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.leaveText, fontWeight: r.leave ? 800 : 500, fontSize: 8 } }, r.leave || "—"),
                         (()=>{ const gs=recordGeoSummary(byDate[r.dk]); return React.createElement('td',{className:"px-1 py-1.5",style:{border:`1px solid ${C.line}`,color:gs.abnormal?"#C62828":C.inkSoft,fontWeight:gs.abnormal?800:500,fontSize:8,lineHeight:1.25,minWidth:150}},gs.text); })()
                       )),
                       React.createElement('tr', { style: { background: `${C.wine}10` } },
@@ -6246,6 +6280,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono" } }, sumReg.toFixed(2)),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 800, color: C.alert, fontFamily: "IBM Plex Mono" } }, sumOver7.toFixed(2)),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, fontWeight: 900, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono" } }, sumOt.toFixed(2)),
+                        React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—"),
                         React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—")
                       )
                     )
@@ -6422,8 +6457,9 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                           { t: "加班時間", w: "20%" },
                           { t: "正常上班工時", sub: "（第1輪＋第2輪）", w: "13%" },
                           { t: "（1＋2）超過7小時", w: "12%" },
-                          { t: "加班工時", w: "9%" },
-                          { t: "打卡定位", w: "16%" },
+                          { t: "加班工時", w: "8%" },
+                          { t: "請假", w: "9%" },
+                          { t: "打卡定位", w: "15%" },
                           { t: "修改", w: "11%" },
                         ].map((h) =>
                           React.createElement('th', {
@@ -6453,6 +6489,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                           React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontFamily: "IBM Plex Mono", fontSize: 8 } }, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
                           React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: r.over7 > 0 ? C.alert : C.inkSoft, fontFamily: "IBM Plex Mono", fontWeight: r.over7 > 0 ? 800 : 500, fontSize: 8 } }, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
                           React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontFamily: "IBM Plex Mono", fontSize: 8 } }, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—"),
+                          React.createElement('td', { className: "px-0.5 py-1.5 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.leaveText, fontWeight: (r.rec && r.rec.leave && r.rec.leave.type) ? 800 : 500, fontSize: 7.5, lineHeight: 1.15 } }, (r.rec && r.rec.leave && r.rec.leave.type) || "—"),
                           (()=>{ const gs=recordGeoSummary(r.rec); return React.createElement('td',{className:"px-0.5 py-1.5",style:{border:`1px solid ${C.line}`,color:gs.abnormal?"#C62828":C.inkSoft,fontWeight:gs.abnormal?800:500,fontSize:7,lineHeight:1.15,wordBreak:"break-word"}},gs.text); })(),
                           React.createElement('td', { className: "px-1 py-1.5 text-center", style: { border: `1px solid ${C.line}` } },
                             React.createElement('button', {
@@ -6475,6 +6512,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.inText, fontWeight: 800, fontFamily: "IBM Plex Mono" } }, sumReg.toFixed(2)),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: C.alert, fontWeight: 800, fontFamily: "IBM Plex Mono" } }, sumOver7.toFixed(2)),
                         React.createElement('td', { className: "px-1 py-2 text-center", style: { border: `1px solid ${C.line}`, color: ATTEND_COLORS.otText, fontWeight: 900, fontFamily: "IBM Plex Mono" } }, sumOt.toFixed(2)),
+                        React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—"),
                         React.createElement('td', { style: { border: `1px solid ${C.line}` } }, "—"),
                         React.createElement('td', { style: { border: `1px solid ${C.line}` } })
                       )
@@ -6500,6 +6538,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                           { top: "正常上班工時", sub: "（第1輪＋第2輪）" },
                           { top: "（1＋2）超過7小時" },
                           { top: "加班工時" },
+                          { top: "請假" },
                           { top: "打卡定位" },
                         ].map((h) =>
                           React.createElement('th', { key: h.top },
@@ -6520,6 +6559,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
                           React.createElement('td', null, r.rh.totalNum != null ? r.rh.totalNum.toFixed(2) : "—"),
                           React.createElement('td', null, r.over7 > 0 ? r.over7.toFixed(2) : "0.00"),
                           React.createElement('td', null, r.oh.totalNum != null ? r.oh.totalNum.toFixed(2) : "—"),
+                          React.createElement('td', null, (r.rec && r.rec.leave && r.rec.leave.type) || "—"),
                           (()=>{const gs=recordGeoSummary(r.rec);return React.createElement('td',{style:{color:gs.abnormal?"#C62828":"#222",fontWeight:gs.abnormal?700:400}},gs.text);})()
                         );
                       }),
