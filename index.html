@@ -9296,6 +9296,9 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   const [enteringZone, setEnteringZone] = useState(null);
   const [entryFading, setEntryFading] = useState(false);
   const zoneEntryTimers = useRef([]);
+  // 五期轉場序號鎖：clearTimeout 無法攔截已進入事件佇列的舊回呼，
+  // 因此每次取消／重開轉場都遞增序號，舊回呼不得再把畫面寫回五期。
+  const zoneEntrySequence = useRef(0);
   const [view, setView] = useState("menu"); // menu | function | floorplan | report | calendar | folders | photos | trees | personnel | permissions
   const [role, setRole] = useState(initialRole || "guest");
   const [loggedInId, setLoggedInId] = useState(initialId || null);
@@ -9362,6 +9365,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   useEffect(() => { if (loggedInId) loadCurrentPersonPerm(loggedInId); }, [loggedInId]);
 
   const cancelZoneEntry = () => {
+    zoneEntrySequence.current += 1;
     zoneEntryTimers.current.forEach((timerId) => window.clearTimeout(timerId));
     zoneEntryTimers.current = [];
     setEnteringZone(null);
@@ -9423,13 +9427,16 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
 
     setEnteringZone(z);
     setEntryFading(false);
+    const entrySequence = zoneEntrySequence.current;
     const revealTimer = window.setTimeout(() => {
+      if (zoneEntrySequence.current !== entrySequence) return;
       // 先把底層切到五期功能，再讓遮罩淡出；避免淡出末端閃回主頁。
       setZone(z);
       setView("menu");
       setEntryFading(true);
     }, 2200);
     const finishTimer = window.setTimeout(() => {
+      if (zoneEntrySequence.current !== entrySequence) return;
       zoneEntryTimers.current = [];
       setEnteringZone(null);
       setEntryFading(false);
