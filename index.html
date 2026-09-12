@@ -9295,6 +9295,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   const [zone, setZone] = useState(null);
   const [enteringZone, setEnteringZone] = useState(null);
   const [entryFading, setEntryFading] = useState(false);
+  const zoneEntryTimers = useRef([]);
   const [view, setView] = useState("menu"); // menu | function | floorplan | report | calendar | folders | photos | trees | personnel | permissions
   const [role, setRole] = useState(initialRole || "guest");
   const [loggedInId, setLoggedInId] = useState(initialId || null);
@@ -9360,8 +9361,20 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   useEffect(() => { refreshPendingCount(); }, []);
   useEffect(() => { if (loggedInId) loadCurrentPersonPerm(loggedInId); }, [loggedInId]);
 
+  const cancelZoneEntry = () => {
+    zoneEntryTimers.current.forEach((timerId) => window.clearTimeout(timerId));
+    zoneEntryTimers.current = [];
+    setEnteringZone(null);
+    setEntryFading(false);
+  };
+  useEffect(() => () => {
+    zoneEntryTimers.current.forEach((timerId) => window.clearTimeout(timerId));
+    zoneEntryTimers.current = [];
+  }, []);
+
   const handleLogin = (r, id) => { setRole(r); setLoggedInId(id); loadCurrentPersonPerm(id); };
   const handleLogout = () => {
+    cancelZoneEntry();
     setZone(null);
     setView("menu");
     setGlobalView(null);
@@ -9372,8 +9385,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   };
   const openGlobalView = (nextView) => {
     // 全域入口永遠以主畫面為上一層，不保留任何溫室路由。
-    setEnteringZone(null);
-    setEntryFading(false);
+    cancelZoneEntry();
     setZone(null);
     setView("menu");
     setGlobalView(nextView);
@@ -9398,6 +9410,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     } catch (e) { console.warn("語音播報不可用", e); }
   };
   const enterZone = (z) => {
+    cancelZoneEntry();
     speakZoneEntry(z);
     setGlobalView(null);
 
@@ -9410,20 +9423,21 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
 
     setEnteringZone(z);
     setEntryFading(false);
-    window.setTimeout(() => {
+    const revealTimer = window.setTimeout(() => {
       // 先把底層切到五期功能，再讓遮罩淡出；避免淡出末端閃回主頁。
       setZone(z);
       setView("menu");
       setEntryFading(true);
     }, 2200);
-    window.setTimeout(() => {
+    const finishTimer = window.setTimeout(() => {
+      zoneEntryTimers.current = [];
       setEnteringZone(null);
       setEntryFading(false);
     }, 3000);
+    zoneEntryTimers.current = [revealTimer, finishTimer];
   };
   const backToMap = () => {
-    setEnteringZone(null);
-    setEntryFading(false);
+    cancelZoneEntry();
     setZone(null);
     setView("menu");
     setGlobalView(null);
@@ -9522,7 +9536,8 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
         React.createElement(FunctionMenu, {
           zone: zone,
           onBack: backToMenu,
-          onOpenReport: () => openZoneView("report"),
+          // 功能表7是全域報表；即使從溫室功能表進入，也不可把該溫室留作返回底頁。
+          onOpenReport: () => openGlobalView("report"),
           onOpenCalendar: () => openZoneView("calendar"),
           onOpenFolders: () => openZoneView("folders"),
           onOpenPhotos: () => openFeature(5, "照片影像資料庫", () => openZoneView("photos")),
@@ -9542,7 +9557,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       , zone && view === "workmonth" && (
         React.createElement(WorkMonthForm, { zone: zone, onBack: backToMenu, role: roleForMenu(3),} )
       )
-      , zone && view === "report" && React.createElement(ReportsHub, { onBack: backToFunction, loggedInId: loggedInId,} )
+      , zone && view === "report" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId,} )
       , zone && view === "calendar" && React.createElement(MasterCalendar, { onBack: backToFunction, role: roleForMenu(4),} )
       , zone && view === "folders" && React.createElement(ZoneWorkFolders, { onBack: backToFunction, role: roleForMenu(3), loggedInId: loggedInId,} )
       , zone && view === "photos" && React.createElement(PhotoLibrary, { zone: zone, onBack: backToFunction, role: featureRole(5), loggedInId: loggedInId,} )
