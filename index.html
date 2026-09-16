@@ -401,7 +401,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.7・功能6／8權限精準版";
+const APP_VERSION = "V4.8・施肥消毒輸入優化版";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -1433,8 +1433,13 @@ function DaySprayPicker({ day, year, month, drugList, fertilizerList, editable, 
     });
   };
   const setItemQty = (code, val) => {
-    const n = Math.max(1, parseInt(val, 10) || 1);
-    setQty((q) => ({ ...q, [code]: n }));
+    // 輸入中允許暫時清空，避免每刪除一個數字就被強制補回 1。
+    if (val === "") {
+      setQty((q) => ({ ...q, [code]: "" }));
+      return;
+    }
+    const n = parseInt(val, 10);
+    if (!Number.isNaN(n)) setQty((q) => ({ ...q, [code]: Math.max(1, n) }));
   };
   const handleSave = () => {
     onSave(
@@ -1475,6 +1480,9 @@ function DaySprayPicker({ day, year, month, drugList, fertilizerList, editable, 
               disabled: !editable,
               value: qty[it.code] || 1,
               onChange: (e) => setItemQty(it.code, e.target.value),
+              onFocus: (e) => e.target.select(),
+              onBlur: () => { if (qty[it.code] === "") setQty((q) => ({ ...q, [it.code]: 1 })); },
+              inputMode: "numeric",
               className: "text-sm text-center rounded-lg"  ,
               style: { width: 48, padding: "6px 4px", border: `1px solid ${color}`, fontFamily: "Inter" },}
             )
