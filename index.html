@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.9・工項輸入導航優化";
+const APP_VERSION = "V5.0・工項輸入導航優化";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -4403,9 +4403,9 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       , editable && React.createElement('button', {
           onClick: confirmAssignmentSave,
           className: "cell-confirm-float fixed no-print flex items-center justify-center gap-2 rounded-full",
-          style: { right: 18, bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", zIndex: 39, minWidth: 118, minHeight: 54, padding: "0 20px", background: "#D94F3D", color: "white", border: "3px solid white", fontFamily: "Inter", fontWeight: 900, fontSize: 17, boxShadow: "0 8px 22px rgba(0,0,0,.28)", textAlign: "center" },
-          'aria-label': "確認並前往回報",
-        }, React.createElement(Check, { size: 19, color: "white" }), "確認")
+          style: { right: 18, bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", zIndex: 39, minHeight: 40, padding: "0 12px", background: "#2E5FA3", color: "white", border: "2px solid white", fontFamily: "Inter", fontWeight: 800, fontSize: 13, boxShadow: "0 2px 6px rgba(0,0,0,.18)", textAlign: "center", touchAction: "manipulation" },
+          'aria-label': "資料輸入並前往回報",
+        }, React.createElement(Check, { size: 15, color: "white" }), "資料輸入")
 
       , showApply && (
         React.createElement('div', { className: "fixed inset-0 z-40 flex items-end"    , style: { background: "rgba(43,33,25,0.5)" }, onClick: () => setShowApply(false),}
