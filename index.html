@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>藍帶無花果・V4.7</title>
+<title>藍帶無花果・V4.99</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V5.0・工項輸入導航優化";
+const APP_VERSION = "V4.99・6-8連點狀態保護";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -3539,6 +3539,10 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     progress: {}, confirmedBy: {}, confirmedTotals: {}, confirmHistory: [],
   };
   const [zoneData, setZoneData] = useState(blankZone);
+  // 6/7/8 快速連點保護：同步保存最新本機狀態，避免 React 尚未重繪時下一次點擊讀到舊值。
+  // 僅作為狀態鏡像；既有儲存、輸入、確認與導航流程不變。
+  const zoneDataRef = useRef(blankZone);
+  useEffect(() => { zoneDataRef.current = zoneData; }, [zoneData]);
   const [status, setStatus] = useState("loading");
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
   const [saveError, setSaveError] = useState("");
@@ -3556,8 +3560,11 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       }
       try {
         const zres = await window.storage.get(zoneKey, true); // 整區共用，shared=true
-        setZoneData(zres ? { ...blankZone, ...JSON.parse(zres.value) } : blankZone);
+        const loadedZone = zres ? { ...blankZone, ...JSON.parse(zres.value) } : blankZone;
+        zoneDataRef.current = loadedZone;
+        setZoneData(loadedZone);
       } catch (e16) {
+        zoneDataRef.current = blankZone;
         setZoneData(blankZone);
       }
       setStatus("ready");
@@ -3589,6 +3596,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       });
   };
   const persistZone = (next) => {
+    zoneDataRef.current = next;
     setZoneData(next);
     runZoneWrite(next);
   };
@@ -3669,15 +3677,16 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
 
   const toggleMulti67 = (itemId, opt) => {
     if (!editable) return;
+    const base = zoneDataRef.current;
     const key = itemId === 6 ? "multi6" : "multi7";
-    const cur = selected67(itemId);
+    const cur = selected67From(base, itemId);
     const arr = cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt];
     persistZone({
-      ...zoneData,
+      ...base,
       [key]: arr,
-      checks: { ...zoneData.checks, [itemId]: arr[0] || null },
-      pending: { ...zoneData.pending, [itemId]: arr.length > 0 },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: nowStamp() } },
+      checks: { ...base.checks, [itemId]: arr[0] || null },
+      pending: { ...base.pending, [itemId]: arr.length > 0 },
+      timestamps: { ...base.timestamps, [itemId]: { ...base.timestamps[itemId], changedAt: nowStamp() } },
     });
   };
 
@@ -3706,6 +3715,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
 
   const zoneDebounceRef = useRef({});
   const persistZoneDebounced = (next, delayMs = 500) => {
+    zoneDataRef.current = next;
     setZoneData(next); // 畫面立即更新，不等儲存完成
     setSaveStatus("saving");
     clearTimeout(zoneDebounceRef.current.timer);
@@ -3723,8 +3733,10 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
   // 表格8：所有成分皆為扁平多選
   const toggleMulti8Main = (opt) => {
     if (!editable) return;
-    const arr = zoneData.multi8Main.includes(opt) ? zoneData.multi8Main.filter((x) => x !== opt) : [...zoneData.multi8Main, opt];
-    persistZone({ ...zoneData, multi8Main: arr, pending: { ...zoneData.pending, 8: arr.length > 0 }, timestamps: { ...zoneData.timestamps, 8: { ...zoneData.timestamps[8], changedAt: nowStamp() } } });
+    const base = zoneDataRef.current;
+    const current = Array.isArray(base.multi8Main) ? base.multi8Main : [];
+    const arr = current.includes(opt) ? current.filter((x) => x !== opt) : [...current, opt];
+    persistZone({ ...base, multi8Main: arr, pending: { ...base.pending, 8: arr.length > 0 }, timestamps: { ...base.timestamps, 8: { ...base.timestamps[8], changedAt: nowStamp() } } });
   };
   const setExtra8 = (opt, value) => {
     if (!editable) return;
