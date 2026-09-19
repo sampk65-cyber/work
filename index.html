@@ -7577,7 +7577,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
 function FloorPlan({ zone, onBack, role, onCycleRole, loggedInId, onGoReport, onHome }) {
   const todayWorkDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const [workDate, setWorkDate] = useState(todayWorkDate);
-  const canBackdate = String(loggedInId || "").toUpperCase() === "A01";
+  const canBackdate = String(loggedInId || "").trim().toUpperCase().startsWith("A01");
   const selectedYm = (canBackdate ? workDate : todayWorkDate).slice(0, 7);
 
   const shape = FLOOR_SHAPES[zone.id];
@@ -7641,7 +7641,7 @@ function FloorPlan({ zone, onBack, role, onCycleRole, loggedInId, onGoReport, on
       , React.createElement('div', { className: "flex items-center justify-between px-4 py-2"    , style: { borderBottom: `1px solid ${C.line}` },}
         , React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 15, color: C.ink },}, zone.name, " · 平面圖"  )
         , canBackdate && React.createElement('div', { className: "flex items-center gap-1 ml-auto mr-2" },
-          React.createElement('span', { style: { fontFamily: "Inter", fontSize: 11, color: C.inkSoft } }, "工作日期"),
+          React.createElement('span', { style: { fontFamily: "Inter", fontSize: 11, color: C.inkSoft } }, "回溯日期"),
           React.createElement('input', { type: "date", value: workDate, max: todayWorkDate, onChange: (e) => setWorkDate(e.target.value || todayWorkDate), style: { fontFamily: "IBM Plex Mono", fontSize: 12, border: `1px solid ${C.line}`, borderRadius: 7, padding: "4px 6px", background: C.paper, color: C.ink } })
         )
         , shape && (
