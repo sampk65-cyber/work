@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.999R・表三捷徑載入修復";
+const APP_VERSION = "V4.1001・表三捷徑載入修復";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -3762,18 +3762,19 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
   const setQty67 = (itemId, opt, value) => {
     if (!editable) return;
     const key = itemId === 6 ? "multi6" : "multi7";
-    const cur = selected67(itemId);
+    const base = zoneDataRef.current;
+    const cur = selected67From(base, itemId);
     const arr = (value !== "" && !cur.includes(opt)) ? [...cur, opt] : cur;
     const field = itemId === 6 ? (opt === "噴灌" ? "minutes" : "tons") : opt;
-    const nextExtra = { ...(zoneData.extra[itemId] || {}), [field]: value };
+    const nextExtra = { ...(base.extra[itemId] || {}), [field]: value };
     if (itemId === 7 && arr.length === 1 && arr[0] === opt) nextExtra.bags = value; // 舊資料相容
     persistZoneDebounced({
-      ...zoneData,
+      ...base,
       [key]: arr,
-      checks: { ...zoneData.checks, [itemId]: arr[0] || null },
-      extra: { ...zoneData.extra, [itemId]: nextExtra },
-      pending: { ...zoneData.pending, [itemId]: arr.length > 0 },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: nowStamp() } },
+      checks: { ...base.checks, [itemId]: arr[0] || null },
+      extra: { ...base.extra, [itemId]: nextExtra },
+      pending: { ...base.pending, [itemId]: arr.length > 0 },
+      timestamps: { ...base.timestamps, [itemId]: { ...base.timestamps[itemId], changedAt: nowStamp() } },
     });
   };
 
@@ -3788,11 +3789,13 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
 
   const setExtra = (itemId, field, value) => {
     if (!editable) return;
-    persistZoneDebounced({ ...zoneData, extra: { ...zoneData.extra, [itemId]: { ...zoneData.extra[itemId], [field]: value } } });
+    const base = zoneDataRef.current;
+    persistZoneDebounced({ ...base, extra: { ...base.extra, [itemId]: { ...(base.extra[itemId] || {}), [field]: value } } });
   };
   const clearExtra = (itemId, field) => {
     if (!editable) return;
-    persistZone({ ...zoneData, extra: { ...zoneData.extra, [itemId]: { ...zoneData.extra[itemId], [field]: "" } } });
+    const base = zoneDataRef.current;
+    persistZone({ ...base, extra: { ...base.extra, [itemId]: { ...(base.extra[itemId] || {}), [field]: "" } } });
   };
   // 表格8：所有成分皆為扁平多選
   const toggleMulti8Main = (opt) => {
@@ -3804,7 +3807,8 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
   };
   const setExtra8 = (opt, value) => {
     if (!editable) return;
-    persistZoneDebounced({ ...zoneData, extra8: { ...zoneData.extra8, [opt]: value } });
+    const base = zoneDataRef.current;
+    persistZoneDebounced({ ...base, extra8: { ...base.extra8, [opt]: value } });
   };
   // 使用者確認回報 → 記錄「這位受文者」對這個項目回報的進度(1~5)，因為現場常常無法一次做完；
   // 呼應級別欄「數字越大越緊急」的邏輯，這裡改成「數字越小完成度越高」：1＝完成（解除待確認），2~5＝仍在處理中、數字越大代表越初期
@@ -3992,8 +3996,9 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
 
   // 6/7是使用量（不是完成度），確認時直接輸入實際用了多少，回報即等於累加確認，不用選1~5進度
   const reportQtyItem = (itemId, personId, qtyMap) => {
-    const selected = selected67(itemId);
-    const totals = { ...(zoneData.confirmedTotals || {}) };
+    const base = zoneDataRef.current;
+    const selected = selected67From(base, itemId);
+    const totals = { ...(base.confirmedTotals || {}) };
     const historyEntries = [];
     selected.forEach((opt) => {
       const raw = (qtyMap && typeof qtyMap === "object") ? qtyMap[opt] : qtyMap;
@@ -4004,18 +4009,18 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       }
     });
     if (historyEntries.length === 0) return;
-    const already = (zoneData.confirmedBy && zoneData.confirmedBy[itemId]) || [];
+    const already = (base.confirmedBy && base.confirmedBy[itemId]) || [];
     const nextConfirmedBy = already.includes(personId) ? already : [...already, personId];
     let next = {
-      ...zoneData,
+      ...base,
       confirmedTotals: totals,
       [itemId === 6 ? "multi6" : "multi7"]: [],
-      checks: { ...zoneData.checks, [itemId]: null },
-      extra: { ...zoneData.extra, [itemId]: {} },
-      progress: { ...zoneData.progress, [itemId]: 1 },
-      confirmedBy: { ...zoneData.confirmedBy, [itemId]: nextConfirmedBy },
-      pending: { ...zoneData.pending, [itemId]: false },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], ackAt: nowStamp() } },
+      checks: { ...base.checks, [itemId]: null },
+      extra: { ...base.extra, [itemId]: {} },
+      progress: { ...base.progress, [itemId]: 1 },
+      confirmedBy: { ...base.confirmedBy, [itemId]: nextConfirmedBy },
+      pending: { ...base.pending, [itemId]: false },
+      timestamps: { ...base.timestamps, [itemId]: { ...base.timestamps[itemId], ackAt: nowStamp() } },
     };
     next = appendHistory(next, historyEntries);
     persistZone(next);
@@ -4024,9 +4029,10 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
 
   // 8可能同時勾選多種資材，各自輸入用量、各自累加
   const reportQty8Item = (personId, qtyMap) => {
-    const already = _optionalChain([zoneData, 'access', _84 => _84.confirmedBy, 'optionalAccess', _85 => _85[8]]) || [];
+    const base = zoneDataRef.current;
+    const already = _optionalChain([base, 'access', _84 => _84.confirmedBy, 'optionalAccess', _85 => _85[8]]) || [];
     const nextConfirmedBy = already.includes(personId) ? already : [...already, personId];
-    const totals = { ...(zoneData.confirmedTotals || {}) };
+    const totals = { ...(base.confirmedTotals || {}) };
     const historyEntries = [];
     Object.entries(qtyMap).forEach(([material, val]) => {
       const n = parseFloat(val);
@@ -4037,12 +4043,12 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     });
     if (historyEntries.length === 0) return;
     let next = {
-      ...zoneData,
+      ...base,
       confirmedTotals: totals,
-      progress: { ...zoneData.progress, 8: 1 },
-      confirmedBy: { ...zoneData.confirmedBy, 8: nextConfirmedBy },
-      pending: { ...zoneData.pending, 8: false },
-      timestamps: { ...zoneData.timestamps, 8: { ...zoneData.timestamps[8], ackAt: nowStamp() } },
+      progress: { ...base.progress, 8: 1 },
+      confirmedBy: { ...base.confirmedBy, 8: nextConfirmedBy },
+      pending: { ...base.pending, 8: false },
+      timestamps: { ...base.timestamps, 8: { ...base.timestamps[8], ackAt: nowStamp() } },
     };
     next = appendHistory(next, historyEntries);
     persistZone(next);
@@ -5810,7 +5816,9 @@ function ZoneMaterialsReport({ year, month, onBack }) {
       if (res) {
         const zdata = JSON.parse(res.value);
 
-        // 表三原則：只有「回報確認」才算數，且回報必有時間 → 月曆與彙總都只認 confirmHistory
+        // 表三救回：逐筆讀取所有 confirmHistory；confirmedTotals 僅作舊資料逐資材 fallback。
+        // 競態保護只保護輸入狀態，不得把歷史紀錄縮成最後一筆。
+        const historyRows = new Set();
         (zdata.confirmHistory || []).forEach((h) => {
           if (!h || !h.rowKey) return;
           const qty = parseFloat(h.qty);
@@ -5818,6 +5826,7 @@ function ZoneMaterialsReport({ year, month, onBack }) {
           const d = dayFromStamp(h.at);
           // 有回報時間才入格；無時間的歷史不入（正常流程回報都會帶 at）
           if (d == null) return;
+          historyRows.add(h.rowKey);
           pushDay(d, {
             rowKey: h.rowKey,
             qty,
@@ -5829,6 +5838,12 @@ function ZoneMaterialsReport({ year, month, onBack }) {
           if (nextTotals[h.rowKey] !== undefined) {
             nextTotals[h.rowKey] = (nextTotals[h.rowKey] || 0) + qty;
           }
+        });
+        // 舊月份可能只有 confirmedTotals；只補該資材完全沒有逐筆 history 的情況，避免重複計算。
+        Object.entries(zdata.confirmedTotals || {}).forEach(([rowKey, raw]) => {
+          if (historyRows.has(rowKey) || nextTotals[rowKey] === undefined) return;
+          const qty = parseFloat(raw);
+          if (!isNaN(qty) && qty > 0) nextTotals[rowKey] = qty;
         });
       }
       setTotals(nextTotals);
