@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>藍帶無花果・V4.991</title>
+<title>藍帶無花果・V4.999</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -7158,6 +7158,15 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
   const [exportSelected, setExportSelected] = useState([]); // 選中要輸出的 cellId 清單
   const [printItems, setPrintItems] = useState(null); // 產生列印預覽後，抓好資料的陣列 [{cellId, fileName, data}]
   const [printLoading, setPrintLoading] = useState(false);
+
+  // 回溯回報固定：從平面圖帶入回溯日時，回報資料夾直接固定到該年月。
+  useEffect(() => {
+    if (!initialWorkDate) return;
+    const m = String(initialWorkDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return;
+    setYearSel(parseInt(m[1], 10));
+    setMonthSel(parseInt(m[2], 10));
+  }, [initialWorkDate]);
 
   const summarizeItem = (item, data) => {
     if (!data) return "-";
