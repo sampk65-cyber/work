@@ -3710,11 +3710,21 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
   // 設計者/管理者變更 → 標記該項為「待確認」(醒目提示) + 記錄時間；新異動一律清空舊回覆，讓「一給一收」保持乾淨的一輪一輪對應
   const setLevel = (itemId, lvl) => {
     if (!editable) return;
-    const nextVal = data.levels[itemId] === lvl ? 0 : lvl;
+    const sameLevel = data.levels[itemId] === lvl;
+    const wasPending = !!data.pending[itemId];
+    const nextVal = sameLevel && wasPending ? 0 : lvl;
+    const nextProgress = { ...data.progress };
+    const nextConfirmedBy = { ...data.confirmedBy };
+    if (nextVal !== 0) {
+      delete nextProgress[itemId];
+      delete nextConfirmedBy[itemId];
+    }
     persist({
       ...data,
       levels: { ...data.levels, [itemId]: nextVal },
       pending: { ...data.pending, [itemId]: nextVal !== 0 },
+      progress: nextProgress,
+      confirmedBy: nextConfirmedBy,
       timestamps: { ...data.timestamps, ...touch(itemId) },
     });
   };
@@ -3745,11 +3755,16 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     const key = itemId === 6 ? "multi6" : "multi7";
     const cur = selected67From(base, itemId);
     const arr = cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt];
+    const nextProgress = { ...base.progress };
+    const nextConfirmedBy = { ...base.confirmedBy };
+    if (arr.length > 0) { delete nextProgress[itemId]; delete nextConfirmedBy[itemId]; }
     persistZone({
       ...base,
       [key]: arr,
       checks: { ...base.checks, [itemId]: arr[0] || null },
       pending: { ...base.pending, [itemId]: arr.length > 0 },
+      progress: nextProgress,
+      confirmedBy: nextConfirmedBy,
       timestamps: { ...base.timestamps, [itemId]: { ...base.timestamps[itemId], changedAt: nowStamp() } },
     });
   };
@@ -3800,7 +3815,10 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     const base = zoneDataRef.current;
     const current = Array.isArray(base.multi8Main) ? base.multi8Main : [];
     const arr = current.includes(opt) ? current.filter((x) => x !== opt) : [...current, opt];
-    persistZone({ ...base, multi8Main: arr, pending: { ...base.pending, 8: arr.length > 0 }, timestamps: { ...base.timestamps, 8: { ...base.timestamps[8], changedAt: nowStamp() } } });
+    const nextProgress = { ...base.progress };
+    const nextConfirmedBy = { ...base.confirmedBy };
+    if (arr.length > 0) { delete nextProgress[8]; delete nextConfirmedBy[8]; }
+    persistZone({ ...base, multi8Main: arr, pending: { ...base.pending, 8: arr.length > 0 }, progress: nextProgress, confirmedBy: nextConfirmedBy, timestamps: { ...base.timestamps, 8: { ...base.timestamps[8], changedAt: nowStamp() } } });
   };
   const setExtra8 = (opt, value) => {
     if (!editable) return;
