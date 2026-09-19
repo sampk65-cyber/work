@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>藍帶無花果・V4.99</title>
+<title>藍帶無花果・V4.991</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.99・6-8連點狀態保護";
+const APP_VERSION = "V4.991・效能減法";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -3512,10 +3512,16 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     window.setTimeout(reveal, 80);
     window.setTimeout(reveal, 320); // iOS 軟鍵盤展開後再校正一次
   };
-  const scrollWorkBottom = () => window.setTimeout(() => {
-    const sc = workScrollRef.current;
-    if (sc) sc.scrollTo({ top: sc.scrollHeight, behavior: "smooth" });
-  }, 60);
+  // 效能減法：連續點選 6–8 時只保留最後一次自動捲動；不改資料、輸入或導航邏輯。
+  const workScrollTimerRef = useRef(null);
+  const scrollWorkBottom = () => {
+    if (workScrollTimerRef.current) window.clearTimeout(workScrollTimerRef.current);
+    workScrollTimerRef.current = window.setTimeout(() => {
+      workScrollTimerRef.current = null;
+      const sc = workScrollRef.current;
+      if (sc) sc.scrollTo({ top: sc.scrollHeight, behavior: "smooth" });
+    }, 60);
+  };
   useEffect(() => {
     document.body.classList.add("cell-work-open");
     return () => document.body.classList.remove("cell-work-open");
