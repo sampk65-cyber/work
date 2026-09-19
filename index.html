@@ -5809,14 +5809,16 @@ function ZoneMaterialsReport({ year, month, onBack }) {
       if (res) {
         const zdata = JSON.parse(res.value);
 
-        // 表三原則：只有「回報確認」才算數，且回報必有時間 → 月曆與彙總都只認 confirmHistory
+        // 表三相容讀取：新紀錄以 confirmHistory 為準；舊月份若某資材沒有 history，
+        // 才回退讀取同月 confirmedTotals。逐資材 fallback，避免新舊資料重複加總。
+        const historyRows = new Set();
         (zdata.confirmHistory || []).forEach((h) => {
           if (!h || !h.rowKey) return;
           const qty = parseFloat(h.qty);
           if (isNaN(qty) || qty <= 0) return;
           const d = dayFromStamp(h.at);
-          // 有回報時間才入格；無時間的歷史不入（正常流程回報都會帶 at）
           if (d == null) return;
+          historyRows.add(h.rowKey);
           pushDay(d, {
             rowKey: h.rowKey,
             qty,
@@ -5828,6 +5830,12 @@ function ZoneMaterialsReport({ year, month, onBack }) {
           if (nextTotals[h.rowKey] !== undefined) {
             nextTotals[h.rowKey] = (nextTotals[h.rowKey] || 0) + qty;
           }
+        });
+        Object.entries(zdata.confirmedTotals || {}).forEach(([rowKey, raw]) => {
+          if (historyRows.has(rowKey) || nextTotals[rowKey] === undefined) return;
+          const qty = parseFloat(raw);
+          if (isNaN(qty) || qty <= 0) return;
+          nextTotals[rowKey] = qty;
         });
       }
       setTotals(nextTotals);
