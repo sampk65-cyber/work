@@ -203,11 +203,6 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   .cell-confirm-float { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 
 </style>
-<!-- 簡易捷徑更新：不使用 PWA / Service Worker -->
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-
 </head>
 <body>
 <div id="root"><div id="load-fallback">載入中…</div></div>
@@ -411,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.999R・表三捷徑載入修復";
+const APP_VERSION = "V4.1000・登入語音恢復";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -7107,16 +7102,6 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
   const [printItems, setPrintItems] = useState(null); // 產生列印預覽後，抓好資料的陣列 [{cellId, fileName, data}]
   const [printLoading, setPrintLoading] = useState(false);
 
-  // A01 回溯日期只負責定位既有回報資料夾的年月。
-  // 不改任何 Firebase / worklog / zonework / 表三 / 歷史資料 / 工作邏輯。
-  useEffect(() => {
-    if (!initialWorkDate) return;
-    const m = String(initialWorkDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return;
-    setYearSel(parseInt(m[1], 10));
-    setMonthSel(parseInt(m[2], 10));
-  }, [initialWorkDate]);
-
   const summarizeItem = (item, data) => {
     if (!data) return "-";
     if (item.type === "level") {
@@ -8002,6 +7987,20 @@ function LoginSplash({ onLogin }) {
   const completeLogin = (remember) => {
     if (!pendingLogin) return;
     const { role, personId } = pendingLogin;
+    // Android Chrome 必須在使用者點擊事件內先啟動語音，否則稍後的未讀留言播報可能被封鎖。
+    if ("speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const loginVoice = new SpeechSynthesisUtterance("登入成功。指定工作請按溫室，確認工作請按功能表四。");
+        loginVoice.lang = "zh-TW";
+        loginVoice.rate = 0.92;
+        loginVoice.volume = 0.9;
+        const voices = window.speechSynthesis.getVoices();
+        const taiwanVoice = voices.find((v) => /zh[-_]TW/i.test(v.lang || ""));
+        if (taiwanVoice) loginVoice.voice = taiwanVoice;
+        window.speechSynthesis.speak(loginVoice);
+      } catch (e) { console.warn("登入語音不可用", e); }
+    }
     setFadingOut(true);
     setTimeout(() => onLogin(role, personId, remember), 480);
   };
