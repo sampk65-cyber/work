@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.998・三擊快捷介面・留言鎖定";
+const APP_VERSION = "V4.999・三擊快捷熱區修正・留言鎖定";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -962,27 +962,26 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
               type:'button', onClick:(e)=>shortcutTripleTap('boss',e), onContextMenu:(e)=>e.preventDefault(), 'aria-label':'功能7表一表三三擊快捷入口',
               style:{position:'absolute',left:'2.5%',top:'2.5%',width:'24%',height:'13%',zIndex:18,background:'transparent',border:'none',padding:0,cursor:'pointer',touchAction:'manipulation'}
             }, React.createElement('span',{className:'boss-logo-star',style:{position:'absolute',right:3,top:1,color:'#FFF7B0',fontSize:18,lineHeight:1}},'✦'))
-          /* iPad 隱藏回報捷徑：連點三下後選溫室，沿用既有工作回報 */
+          /* 照片中人物手持 iPad 隱藏回報捷徑：透明熱區連點三下，沿用既有工作回報 */
           , React.createElement('button', {
-              type:'button', onClick:(e)=>shortcutTripleTap('ipad',e), onContextMenu:(e)=>e.preventDefault(), 'aria-label':'iPad 工作回報三擊捷徑',
-              className:'ipad-report-shortcut apple-soft-glow',
-              style:{position:'absolute',right:10,top:10,zIndex:18,width:42,height:42,alignItems:'center',justifyContent:'center',background:'rgba(5,25,48,.78)',border:'1.5px solid rgba(150,235,255,.95)',borderRadius:'50%',color:'white',fontSize:25,fontWeight:700,boxShadow:'0 0 10px #fff,0 0 24px rgba(0,174,255,.92),0 0 42px rgba(0,110,255,.60)',touchAction:'manipulation'}
-            }, '')
+              type:'button', onClick:(e)=>shortcutTripleTap('ipad',e), onContextMenu:(e)=>e.preventDefault(), 'aria-label':'照片中手持iPad工作回報三擊捷徑',
+              style:{position:'absolute',left:'76%',top:'67%',zIndex:28,width:'18%',height:'22%',background:'transparent',border:'none',padding:0,cursor:'pointer',touchAction:'manipulation'}
+            })
           , bossShortcutOpen && React.createElement('div',{
               style:{position:'fixed',inset:0,zIndex:70,display:'flex',alignItems:'center',justifyContent:'center',padding:18,background:'rgba(0,14,18,.72)',backdropFilter:'blur(5px)'}, onClick:()=>setBossShortcutOpen(false)
-            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(88vw,620px)',padding:'26px 24px',borderRadius:28,background:'linear-gradient(145deg,rgba(6,35,34,.97),rgba(8,20,30,.97))',border:'2px solid #ffd34d',boxShadow:'0 0 12px #fff3,0 0 30px #ffbf24,0 0 70px rgba(255,157,0,.48)'}},
+            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(72vw,420px)',padding:'18px 16px',borderRadius:24,background:'linear-gradient(145deg,rgba(6,35,34,.97),rgba(8,20,30,.97))',border:'2px solid #ffd34d',boxShadow:'0 0 12px #fff3,0 0 30px #ffbf24,0 0 70px rgba(255,157,0,.48)'}},
               React.createElement('div',{style:{textAlign:'center',color:'#ffe27a',fontSize:20,fontWeight:900,marginBottom:14,textShadow:'0 0 12px #ffb300'}},'功能7'),
               React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
-                React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('materials');},style:{minHeight:120,borderRadius:20,border:'2px solid #4fffb0',background:'rgba(0,90,63,.36)',color:'white',boxShadow:'0 0 16px rgba(79,255,176,.75),inset 0 0 20px rgba(79,255,176,.14)',fontWeight:900,fontSize:24}},'表一',React.createElement('div',{style:{fontSize:13,marginTop:8,fontWeight:700}},'耗材匯總表')),
-                React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('zoneMaterials');},style:{minHeight:120,borderRadius:20,border:'2px solid #9b7cff',background:'rgba(58,40,120,.38)',color:'white',boxShadow:'0 0 16px rgba(155,124,255,.78),inset 0 0 20px rgba(155,124,255,.15)',fontWeight:900,fontSize:24}},'表三',React.createElement('div',{style:{fontSize:13,marginTop:8,fontWeight:700}},'分區耗材統計'))
+                React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('materials');},style:{minHeight:92,borderRadius:18,border:'2px solid #4fffb0',background:'rgba(0,90,63,.36)',color:'white',boxShadow:'0 0 16px rgba(79,255,176,.75),inset 0 0 20px rgba(79,255,176,.14)',fontWeight:900,fontSize:21}},'表一',React.createElement('div',{style:{fontSize:13,marginTop:8,fontWeight:700}},'耗材匯總表')),
+                React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('zoneMaterials');},style:{minHeight:92,borderRadius:18,border:'2px solid #9b7cff',background:'rgba(58,40,120,.38)',color:'white',boxShadow:'0 0 16px rgba(155,124,255,.78),inset 0 0 20px rgba(155,124,255,.15)',fontWeight:900,fontSize:21}},'表三',React.createElement('div',{style:{fontSize:13,marginTop:8,fontWeight:700}},'分區耗材統計'))
               ), React.createElement('div',{style:{textAlign:'center',marginTop:14,color:'rgba(255,255,255,.88)',fontWeight:800,fontSize:13}},'好土、好果、好生活')
             ))
           , ipadShortcutOpen && React.createElement('div',{
               style:{position:'fixed',inset:0,zIndex:70,display:'flex',alignItems:'center',justifyContent:'center',padding:18,background:'rgba(0,14,25,.74)',backdropFilter:'blur(5px)'}, onClick:()=>setIpadShortcutOpen(false)
-            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(88vw,620px)',padding:'26px 24px',borderRadius:28,background:'linear-gradient(145deg,rgba(3,35,50,.98),rgba(5,20,35,.98))',border:'2px solid #48ddff',boxShadow:'0 0 14px #fff3,0 0 34px #18bfff,0 0 75px rgba(0,119,255,.52)'}},
+            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(72vw,420px)',padding:'18px 16px',borderRadius:24,background:'linear-gradient(145deg,rgba(3,35,50,.98),rgba(5,20,35,.98))',border:'2px solid #48ddff',boxShadow:'0 0 14px #fff3,0 0 34px #18bfff,0 0 75px rgba(0,119,255,.52)'}},
               React.createElement('div',{style:{textAlign:'center',color:'white',fontSize:34,marginBottom:2,textShadow:'0 0 14px #42d8ff,0 0 30px #0077ff'}},''),
               React.createElement('div',{style:{textAlign:'center',color:'#dff9ff',fontSize:20,fontWeight:900,marginBottom:14}},'選擇溫室'),
-              React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}, ZONES.map((z)=>React.createElement('button',{key:z.id,onClick:()=>{setIpadShortcutOpen(false);onEnter(z);},style:{padding:'15px 8px',borderRadius:16,border:'1.5px solid #4ee8ff',background:'rgba(0,86,108,.28)',color:'white',fontSize:18,fontWeight:900,boxShadow:'0 0 12px rgba(78,232,255,.35)'}},z.short||z.name))),
+              React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}, ZONES.map((z)=>React.createElement('button',{key:z.id,onClick:()=>{setIpadShortcutOpen(false);onEnter(z);},style:{padding:'12px 8px',borderRadius:14,border:'1.5px solid #4ee8ff',background:'rgba(0,86,108,.28)',color:'white',fontSize:18,fontWeight:900,boxShadow:'0 0 12px rgba(78,232,255,.35)'}},z.short||z.name))),
               React.createElement('div',{style:{textAlign:'center',marginTop:14,color:'rgba(220,249,255,.88)',fontWeight:800,fontSize:13}},'好土、好果、好生活')
             ))
           , React.createElement('div', { className: "absolute inset-0" ,}
