@@ -238,66 +238,123 @@ const { useState, useEffect, useRef } = React;
   };
 
   if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+
   const db = firebase.firestore();
   const auth = firebase.auth();
   const fileStorage = firebase.storage();
   const COLLECTION = "kv";
-  let authReadyPromise = null;
 
-  async function ensureFirebaseAuth() {
-    if (auth.currentUser) return auth.currentUser;
-    if (!authReadyPromise) {
-      authReadyPromise = auth.signInAnonymously().then((cred) => {
-        window.__farmFirebaseUser = cred.user || auth.currentUser || null;
-        return window.__farmFirebaseUser;
-      }).catch((err) => {
-        authReadyPromise = null;
-        console.error("Firebase anonymous auth error", err);
-        throw new Error(
-          err && err.code === "auth/operation-not-allowed"
-            ? "Firebase 尚未啟用 Anonymous Authentication"
-            : (err?.message || "Firebase 驗證失敗")
-        );
-      });
-    }
-    return authReadyPromise;
-  }
-
-  window.firebaseReady = ensureFirebaseAuth();
+  // 對外提供狀態，方便 TEDDY 或日後除錯
   window.__firebaseDb = db;
   window.__firebaseAuth = auth;
   window.__firebaseStorage = fileStorage;
+  window.__firebaseAuthMode = "anonymous";
+
+  // 先完成 Firebase Auth，再進行任何 Firestore 存取
+  window.firebaseReady = new Promise((resolve, reject) => {
+    let settled = false;
+
+    const done = (user) => {
+      if (settled) return;
+      settled = true;
+      window.__firebaseUser = user || null;
+      resolve(user || null);
+    };
+
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      console.error("Firebase Authentication 初始化失敗", err);
+      window.__firebaseInitError = err;
+      reject(err);
+    };
+
+    const unsubscribe = auth.onAuthStateChanged(
+      async (user) => {
+        if (user) {
+          try { unsubscribe(); } catch (_) {}
+          done(user);
+          return;
+        }
+
+        try {
+          const cred = await auth.signInAnonymously();
+          try { unsubscribe(); } catch (_) {}
+          done(cred.user);
+        } catch (err) {
+          try { unsubscribe(); } catch (_) {}
+          fail(err);
+        }
+      },
+      fail
+    );
+  });
+
+  async function ensureReady() {
+    try {
+      return await window.firebaseReady;
+    } catch (err) {
+      // 保留原始錯誤，讓上層能真正知道是驗證問題，不再假裝「資料不存在」
+      throw err;
+    }
+  }
 
   window.storage = {
     async get(key, shared) {
-      await ensureFirebaseAuth();
-      const doc = await db.collection(COLLECTION).doc(key).get();
-      if (!doc.exists) return null;
-      const data = doc.data() || {};
-      return { key, value: data.value, shared: !!shared };
+      await ensureReady();
+      try {
+        const doc = await db.collection(COLLECTION).doc(key).get();
+        if (!doc.exists) return null;
+        const data = doc.data() || {};
+        return { key, value: data.value, shared: !!shared };
+      } catch (e) {
+        console.error("storage.get error", key, e);
+        throw e;
+      }
     },
+
     async set(key, value, shared) {
-      await ensureFirebaseAuth();
-      await db.collection(COLLECTION).doc(key).set({
-        key, value, updatedAt: Date.now(),
-        updatedByUid: auth.currentUser ? auth.currentUser.uid : null,
-      }, { merge: true });
-      return { key, value, shared: !!shared };
+      await ensureReady();
+      try {
+        await db.collection(COLLECTION).doc(key).set({
+          key,
+          value,
+          updatedAt: Date.now(),
+          updatedByUid: auth.currentUser ? auth.currentUser.uid : null,
+        }, { merge: true });
+        return { key, value, shared: !!shared };
+      } catch (e) {
+        console.error("storage.set error", key, e);
+        throw e;
+      }
     },
+
     async delete(key, shared) {
-      await ensureFirebaseAuth();
-      await db.collection(COLLECTION).doc(key).delete();
-      return { key, deleted: true, shared: !!shared };
+      await ensureReady();
+      try {
+        await db.collection(COLLECTION).doc(key).delete();
+        return { key, deleted: true, shared: !!shared };
+      } catch (e) {
+        console.error("storage.delete error", key, e);
+        throw e;
+      }
     },
+
     async list(prefix, shared) {
-      await ensureFirebaseAuth();
-      const p = prefix || "";
-      const end = p + "\uf8ff";
-      const snap = await db.collection(COLLECTION)
-        .where("key", ">=", p)
-        .where("key", "<", end)
-        .get();
-      return { keys: snap.docs.map((d) => d.id), prefix: prefix || undefined, shared: !!shared };
+      await ensureReady();
+      try {
+        const p = prefix || "";
+        const end = p + "\uf8ff";
+        const snap = await db.collection(COLLECTION)
+          .where("key", ">=", p)
+          .where("key", "<", end)
+          .get();
+        const keys = snap.docs.map((d) => d.id);
+        return { keys, prefix: prefix || undefined, shared: !!shared };
+      } catch (e) {
+        console.error("storage.list error", prefix, e);
+        throw e;
+      }
     },
   };
 })();
