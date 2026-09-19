@@ -756,7 +756,7 @@ function BackupPanel({ onClose }) {
   );
 }
 
-function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenAttendance, onBossTable, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
+function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenAttendance, onBossTable, onIpadReport, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
   const groups = [...new Set(ZONES.filter((z) => z.group).map((z) => z.group))];
   const [zoom, setZoom] = useState(1);
   const [showGlobalMenu, setShowGlobalMenu] = useState(false);
@@ -969,7 +969,7 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
             })
           , bossShortcutOpen && React.createElement('div',{
               style:{position:'fixed',inset:0,zIndex:70,display:'flex',alignItems:'center',justifyContent:'center',padding:18,background:'rgba(0,14,18,.72)',backdropFilter:'blur(5px)'}, onClick:()=>setBossShortcutOpen(false)
-            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(72vw,420px)',padding:'18px 16px',borderRadius:24,background:'linear-gradient(145deg,rgba(6,35,34,.97),rgba(8,20,30,.97))',border:'2px solid #ffd34d',boxShadow:'0 0 12px #fff3,0 0 30px #ffbf24,0 0 70px rgba(255,157,0,.48)'}},
+            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(56vw,360px)',padding:'16px 14px',borderRadius:24,background:'linear-gradient(145deg,rgba(6,35,34,.97),rgba(8,20,30,.97))',border:'2px solid #ffd34d',boxShadow:'0 0 12px #fff3,0 0 30px #ffbf24,0 0 70px rgba(255,157,0,.48)'}},
               React.createElement('div',{style:{textAlign:'center',color:'#ffe27a',fontSize:20,fontWeight:900,marginBottom:14,textShadow:'0 0 12px #ffb300'}},'功能7'),
               React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
                 React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('materials');},style:{minHeight:92,borderRadius:18,border:'2px solid #4fffb0',background:'rgba(0,90,63,.36)',color:'white',boxShadow:'0 0 16px rgba(79,255,176,.75),inset 0 0 20px rgba(79,255,176,.14)',fontWeight:900,fontSize:21}},'表一',React.createElement('div',{style:{fontSize:13,marginTop:8,fontWeight:700}},'耗材匯總表')),
@@ -978,10 +978,9 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
             ))
           , ipadShortcutOpen && React.createElement('div',{
               style:{position:'fixed',inset:0,zIndex:70,display:'flex',alignItems:'center',justifyContent:'center',padding:18,background:'rgba(0,14,25,.74)',backdropFilter:'blur(5px)'}, onClick:()=>setIpadShortcutOpen(false)
-            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(72vw,420px)',padding:'18px 16px',borderRadius:24,background:'linear-gradient(145deg,rgba(3,35,50,.98),rgba(5,20,35,.98))',border:'2px solid #48ddff',boxShadow:'0 0 14px #fff3,0 0 34px #18bfff,0 0 75px rgba(0,119,255,.52)'}},
-              React.createElement('div',{style:{textAlign:'center',color:'white',fontSize:34,marginBottom:2,textShadow:'0 0 14px #42d8ff,0 0 30px #0077ff'}},''),
+            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(56vw,360px)',padding:'16px 14px',borderRadius:24,background:'linear-gradient(145deg,rgba(3,35,50,.98),rgba(5,20,35,.98))',border:'2px solid #48ddff',boxShadow:'0 0 14px #fff3,0 0 34px #18bfff,0 0 75px rgba(0,119,255,.52)'}},
               React.createElement('div',{style:{textAlign:'center',color:'#dff9ff',fontSize:20,fontWeight:900,marginBottom:14}},'選擇溫室'),
-              React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}, ZONES.map((z)=>React.createElement('button',{key:z.id,onClick:()=>{setIpadShortcutOpen(false);onEnter(z);},style:{padding:'12px 8px',borderRadius:14,border:'1.5px solid #4ee8ff',background:'rgba(0,86,108,.28)',color:'white',fontSize:18,fontWeight:900,boxShadow:'0 0 12px rgba(78,232,255,.35)'}},z.short||z.name))),
+              React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}, ZONES.map((z)=>React.createElement('button',{key:z.id,onClick:()=>{setIpadShortcutOpen(false);onIpadReport&&onIpadReport(z);},style:{padding:'10px 8px',borderRadius:14,border:'1.5px solid #4ee8ff',background:'rgba(0,86,108,.28)',color:'white',fontSize:18,fontWeight:900,boxShadow:'0 0 12px rgba(78,232,255,.35)'}},z.short||z.name))),
               React.createElement('div',{style:{textAlign:'center',marginTop:14,color:'rgba(220,249,255,.88)',fontWeight:800,fontSize:13}},'好土、好果、好生活')
             ))
           , React.createElement('div', { className: "absolute inset-0" ,}
@@ -8591,11 +8590,11 @@ function ZoneNoticeBoard({ role, loggedInId }) {
 }
 
 // 儲存 key：attendance:{personId}:{YYYY-MM-DD}，一人一天一筆，記錄上班/下班時間與請假狀態
-function ZoneWorkFolders({ onBack, role, loggedInId }) {
+function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null }) {
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState({}); // index[zoneId][year][month] = [{cellId, ym, latest}]
   const [pendingByZone, setPendingByZone] = useState({}); // { [zoneId]: 待確認格數 }，用於在資料夾根畫面明顯提示
-  const [zoneSel, setZoneSel] = useState(null);
+  const [zoneSel, setZoneSel] = useState(() => initialZoneId || null);
   const [yearSel, setYearSel] = useState(null);
   const [monthSel, setMonthSel] = useState(null);
   const [openCell, setOpenCell] = useState(null); // { zone, cellId, ym }
@@ -9586,6 +9585,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   const [loggedInId, setLoggedInId] = useState(initialId || null);
   // 導覽修正：全域功能改為單一路由，避免多個布林開關殘留而疊出錯誤頁面。
   const [globalView, setGlobalView] = useState(null);
+  const [reportShortcutZone, setReportShortcutZone] = useState(null);
   const [pendingPermCount, setPendingPermCount] = useState(0);
   const [currentPersonPerm, setCurrentPersonPerm] = useState(null);
 
@@ -9810,6 +9810,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
           onOpenPermissions: () => openGlobalView("permissions"),
           onOpenAttendance: () => openGlobalView("attendance"),
           onBossTable: (key) => openGlobalView(key === "materials" ? "report1" : "report3"),
+          onIpadReport: (z) => { setReportShortcutZone(z.id); openGlobalView("folders"); },
           pendingPermCount: pendingPermCount,
           role: role,
           loggedInId: loggedInId,
@@ -9822,7 +9823,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       , globalView === "report1" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, shortcutKey:"materials",} )
       , globalView === "report3" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, shortcutKey:"zoneMaterials",} )
       , globalView === "calendar" && React.createElement(MasterCalendar, { onBack: backToMap, role: roleForMenu(4),} )
-      , globalView === "folders" && React.createElement(ZoneWorkFolders, { onBack: backToMap, role: roleForMenu(3), loggedInId: loggedInId,} )
+      , globalView === "folders" && React.createElement(ZoneWorkFolders, { onBack: () => { setReportShortcutZone(null); backToMap(); }, role: roleForMenu(3), loggedInId: loggedInId, initialZoneId: reportShortcutZone,} )
       , globalView === "photos" && React.createElement(FeatureZonePortal, { type: "photos", onBack: backToMap, role: featureRole(5), loggedInId: loggedInId,} )
       , globalView === "trees" && React.createElement(FeatureZonePortal, { type: "trees", onBack: backToMap, role: treeRole(), loggedInId: loggedInId,} )
       , globalView === "personnel" && React.createElement(PersonnelMenu, { onBack: backToMap, role: roleForMenu(0), onChanged: refreshPendingCount,} )
