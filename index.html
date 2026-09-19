@@ -5066,9 +5066,10 @@ const REPORT_SLOTS = [
 // 耗材與報表主入口：年份資料夾 → 月份資料夾 → 10個表格選項（表一~表十）
 function ReportsHub({ onBack, loggedInId, shortcutKey = null }) {
   const now = new Date();
-  const [yearSel, setYearSel] = useState(() => shortcutKey ? now.getFullYear() : null);
-  const [monthSel, setMonthSel] = useState(() => shortcutKey ? now.getMonth() + 1 : null);
-  const [openKey, setOpenKey] = useState(() => shortcutKey); // "materials" | "annual" | "zoneMaterials" | "noticeBoard" | null
+  // 捷徑只指定目標表；年月仍走功能7原本選擇流程，確保與95版正常入口一致。
+  const [yearSel, setYearSel] = useState(null);
+  const [monthSel, setMonthSel] = useState(null);
+  const [openKey, setOpenKey] = useState(null); // "materials" | "annual" | "zoneMaterials" | "noticeBoard" | null
 
   if (openKey === "materials") {
     return React.createElement(MonthlyReport, { year: yearSel, month: monthSel, onBack: () => shortcutKey ? onBack() : setOpenKey(null),} );
@@ -5121,7 +5122,7 @@ function ReportsHub({ onBack, loggedInId, shortcutKey = null }) {
       ) : !monthSel ? (
         React.createElement('div', { className: "grid grid-cols-3 gap-3 p-4"   ,}
           , FOLDER_MONTHS.map((m) => (
-            React.createElement('button', { key: m, onClick: () => setMonthSel(m),
+            React.createElement('button', { key: m, onClick: () => { setMonthSel(m); if (shortcutKey) setOpenKey(shortcutKey); },
               className: "rounded-xl p-3 flex flex-col items-center gap-1"     ,
               style: {
                 background: m === now.getMonth() + 1 && yearSel === now.getFullYear() ? `${C.tableColor}14` : C.paper,
