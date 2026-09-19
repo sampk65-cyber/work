@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.992・導航刪除修正";
+const APP_VERSION = "V4.994・老闆隱藏捷徑";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -756,11 +756,12 @@ function BackupPanel({ onClose }) {
   );
 }
 
-function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenAttendance, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
+function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenAttendance, onBossTable, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
   const groups = [...new Set(ZONES.filter((z) => z.group).map((z) => z.group))];
   const [zoom, setZoom] = useState(1);
   const [showGlobalMenu, setShowGlobalMenu] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  const [bossShortcutOpen, setBossShortcutOpen] = useState(false);
   const [homeNow, setHomeNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -875,6 +876,12 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
           50% { text-shadow: 0 0 5px rgba(255,126,72,.95), 0 0 14px rgba(255,90,54,.55); }
         }
         .home-solar-route { animation: solarInfoGlow 2.6s ease-in-out infinite; }
+        @keyframes bossStarTwinkle { 0%,100%{opacity:.28;transform:scale(.72) rotate(0deg)} 50%{opacity:1;transform:scale(1.2) rotate(18deg);text-shadow:0 0 8px #fff,0 0 13px #ffe58a} }
+        .boss-logo-star { animation: bossStarTwinkle 1.8s ease-in-out infinite; }
+        .ipad-report-shortcut { display:none; }
+        @media (min-width: 768px) and (pointer: coarse) { .ipad-report-shortcut { display:flex; } }
+        @keyframes appleSoftGlow { 0%,100%{opacity:.48;filter:drop-shadow(0 0 2px rgba(255,255,255,.35))} 50%{opacity:.95;filter:drop-shadow(0 0 10px rgba(255,255,255,.95)) drop-shadow(0 0 16px rgba(124,232,196,.65))} }
+        .apple-soft-glow { animation: appleSoftGlow 2.4s ease-in-out infinite; }
       `)
       /* 主頁整體縮放控制 */
       , React.createElement('div', { className: "fixed top-3 right-3 z-20 flex items-center gap-1 rounded-xl shadow-md p-1"         , style: { background: C.paper, border: `1px solid ${C.line}` },}
@@ -925,6 +932,24 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
 
         , React.createElement('div', { className: "relative w-full max-w-md mx-4 rounded-2xl overflow-hidden shadow-lg"      , style: { border: `1px solid ${C.line}` },}
           , React.createElement(IllustratedMap, null )
+          /* 老闆隱藏捷徑：只增加入口，不改表一／表三既有邏輯 */
+          , React.createElement('button', {
+              type:'button', onClick:()=>setBossShortcutOpen(true), 'aria-label':'表一表三快捷入口',
+              style:{position:'absolute',left:'2.5%',top:'2.5%',width:'24%',height:'13%',zIndex:18,background:'transparent',border:'none',padding:0,cursor:'pointer'}
+            }, React.createElement('span',{className:'boss-logo-star',style:{position:'absolute',right:3,top:1,color:'#FFF7B0',fontSize:16,lineHeight:1}},'✦'))
+          /* iPad 隱藏回報捷徑：Apple logo 只呼叫既有功能表4／工作回報入口 */
+          , React.createElement('button', {
+              type:'button', onClick:onOpenFolders, 'aria-label':'iPad 工作回報捷徑',
+              className:'ipad-report-shortcut apple-soft-glow',
+              style:{position:'absolute',right:10,top:10,zIndex:18,width:36,height:36,alignItems:'center',justifyContent:'center',background:'rgba(15,45,39,.36)',border:'1px solid rgba(255,255,255,.38)',borderRadius:'50%',color:'white',fontSize:22,fontWeight:700}
+            }, '')
+          , bossShortcutOpen && React.createElement('div',{
+              style:{position:'absolute',inset:0,zIndex:40,display:'flex',alignItems:'flex-start',justifyContent:'flex-start',padding:'72px 18px 18px',background:'rgba(20,18,14,.22)'},
+              onClick:()=>setBossShortcutOpen(false)
+            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{display:'flex',gap:8,padding:8,borderRadius:14,background:'rgba(255,253,248,.96)',boxShadow:'0 6px 22px rgba(0,0,0,.22)',border:`1px solid ${C.line}`}},
+                React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('materials');},className:'px-4 py-2 rounded-xl text-sm',style:{background:C.cream,color:C.ink,fontWeight:800}},'表一'),
+                React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('zoneMaterials');},className:'px-4 py-2 rounded-xl text-sm',style:{background:C.cream,color:C.ink,fontWeight:800}},'表三')
+            ))
           , React.createElement('div', { className: "absolute inset-0" ,}
             , ZONES.map((z) => (
               React.createElement(ZonePin, { key: z.id, zone: z, onClick: onEnter, pending: !!pendingZones[z.id],} )
@@ -5006,14 +5031,14 @@ const REPORT_SLOTS = [
 ];
 
 // 耗材與報表主入口：年份資料夾 → 月份資料夾 → 10個表格選項（表一~表十）
-function ReportsHub({ onBack, loggedInId }) {
+function ReportsHub({ onBack, loggedInId, shortcutKey = null }) {
   const now = new Date();
-  const [yearSel, setYearSel] = useState(null);
-  const [monthSel, setMonthSel] = useState(null);
-  const [openKey, setOpenKey] = useState(null); // "materials" | "annual" | "zoneMaterials" | "noticeBoard" | null
+  const [yearSel, setYearSel] = useState(() => shortcutKey ? now.getFullYear() : null);
+  const [monthSel, setMonthSel] = useState(() => shortcutKey ? now.getMonth() + 1 : null);
+  const [openKey, setOpenKey] = useState(() => shortcutKey); // "materials" | "annual" | "zoneMaterials" | "noticeBoard" | null
 
   if (openKey === "materials") {
-    return React.createElement(MonthlyReport, { year: yearSel, month: monthSel, onBack: () => setOpenKey(null),} );
+    return React.createElement(MonthlyReport, { year: yearSel, month: monthSel, onBack: () => shortcutKey ? onBack() : setOpenKey(null),} );
   }
   if (openKey === "annual") {
     return React.createElement(AnnualPlan, { onClose: () => setOpenKey(null),} );
@@ -5022,7 +5047,7 @@ function ReportsHub({ onBack, loggedInId }) {
     return React.createElement(ZoneMaterialsReport, {
       year: yearSel,
       month: monthSel,
-      onBack: () => setOpenKey(null),
+      onBack: () => shortcutKey ? onBack() : setOpenKey(null),
     } );
   }
   if (openKey === "noticeBoard") {
@@ -9745,6 +9770,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
           onOpenPersonnel: () => openGlobalView("personnel"),
           onOpenPermissions: () => openGlobalView("permissions"),
           onOpenAttendance: () => openGlobalView("attendance"),
+          onBossTable: (key) => openGlobalView(key === "materials" ? "report1" : "report3"),
           pendingPermCount: pendingPermCount,
           role: role,
           loggedInId: loggedInId,
@@ -9754,6 +9780,8 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       )
 
       , globalView === "report" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId,} )
+      , globalView === "report1" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, shortcutKey:"materials",} )
+      , globalView === "report3" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, shortcutKey:"zoneMaterials",} )
       , globalView === "calendar" && React.createElement(MasterCalendar, { onBack: backToMap, role: roleForMenu(4),} )
       , globalView === "folders" && React.createElement(ZoneWorkFolders, { onBack: backToMap, role: roleForMenu(3), loggedInId: loggedInId,} )
       , globalView === "photos" && React.createElement(FeatureZonePortal, { type: "photos", onBack: backToMap, role: featureRole(5), loggedInId: loggedInId,} )
