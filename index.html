@@ -3,18 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>藍帶無花果・V4.993</title>
+<title>藍帶無花果・V4.991</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="format-detection" content="telephone=no" />
-<meta name="theme-color" content="#f8f4ea" />
-<meta name="application-name" content="藍帶無花果" />
-<link rel="manifest" href="./manifest.webmanifest" />
-<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
-<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
-<link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
@@ -412,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.993・PWA安裝版";
+const APP_VERSION = "V4.992・導航刪除修正";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -5387,17 +5381,7 @@ function MonthlyReport({ year, month, onBack }) {
     const totals = `<tr class="total"><td>各區合計</td>${ZONES.map((z) => `<td>${esc(draftZoneTotal(z.id) || "－")}</td>`).join("")}<td></td></tr>`;
     const popup = window.open("", "_blank");
     if (!popup) { alert("瀏覽器封鎖列印視窗，請允許彈出式視窗後重試"); return; }
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(draftName || "表一副表")}</title><style>@page{size:A4 landscape;margin:12mm}body{font-family:Arial,"Noto Sans TC",sans-serif;color:#2f2922}h1{font-size:20px;margin:0 0 6px}.meta{font-size:12px;color:#665f55;margin-bottom:12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bdb5a7;padding:6px;text-align:center}th:first-child,td:first-child{text-align:left}.total{font-weight:700;background:#f3eee4}</style></head><body><h1>${esc(draftName || "表一副表")}</h1><div class="meta">資料範圍：${esc(rangeLabel(startYm, endYm))}　｜　手動調整副表（不影響原始表一）${draftSavedAt ? `　｜　儲存：${esc(draftSavedAt)}` : ""}</div>${draftNote ? `<div class="meta">備註：${esc(draftNote)}</div>` : ""}<table><thead><tr><th>品項</th>${ZONES.map((z) => `<th>${esc(z.short)}</th>`).join("")}<th>合計</th></tr></thead><tbody>${bodyRows}${totals}</tbody></table><script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script>
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(function (err) {
-      console.warn('PWA service worker registration failed:', err);
-    });
-  });
-}
-</script>
-</body></html>`);
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(draftName || "表一副表")}</title><style>@page{size:A4 landscape;margin:12mm}body{font-family:Arial,"Noto Sans TC",sans-serif;color:#2f2922}h1{font-size:20px;margin:0 0 6px}.meta{font-size:12px;color:#665f55;margin-bottom:12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bdb5a7;padding:6px;text-align:center}th:first-child,td:first-child{text-align:left}.total{font-weight:700;background:#f3eee4}</style></head><body><h1>${esc(draftName || "表一副表")}</h1><div class="meta">資料範圍：${esc(rangeLabel(startYm, endYm))}　｜　手動調整副表（不影響原始表一）${draftSavedAt ? `　｜　儲存：${esc(draftSavedAt)}` : ""}</div>${draftNote ? `<div class="meta">備註：${esc(draftNote)}</div>` : ""}<table><thead><tr><th>品項</th>${ZONES.map((z) => `<th>${esc(z.short)}</th>`).join("")}<th>合計</th></tr></thead><tbody>${bodyRows}${totals}</tbody></table><script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script></body></html>`);
     popup.document.close();
   };
 
