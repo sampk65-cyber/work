@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.991・效能減法";
+const APP_VERSION = "V4.992・導航刪除修正";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -8707,7 +8707,16 @@ function ZoneWorkFolders({ onBack, role, loggedInId }) {
 
   const doDelete = async () => {
     const { zoneId, cellId, ym } = deleteTarget;
-    try { await window.storage.delete(`worklog:${zoneId}:${cellId}:${ym}`); } catch (e) { console.error(e); }
+    // 刪除指定工作時，若這已是該分區該月份最後一筆格位紀錄，
+    // 同步移除 6-8 全區共用指定，避免 zonework 的 pending 殘留造成分區持續閃燈。
+    // 直接使用目前已載入的 records 判斷，不新增 storage.list 掃描。
+    const deletingLastRecord = records.filter((r) => r.cellId !== cellId).length === 0;
+    try {
+      await window.storage.delete(`worklog:${zoneId}:${cellId}:${ym}`);
+      if (deletingLastRecord) {
+        try { await window.storage.delete(`zonework:${zoneId}:${ym}`, true); } catch (zoneErr) { console.error(zoneErr); }
+      }
+    } catch (e) { console.error(e); }
     setDeleteTarget(null);
     scan();
   };
@@ -8721,8 +8730,8 @@ function ZoneWorkFolders({ onBack, role, loggedInId }) {
 
   return (
     React.createElement('div', { className: "min-h-screen flex flex-col"  , style: { background: C.cream },}
-      , React.createElement(NavBar, {
-        backLabel: monthSel ? `${yearSel}年` : yearSel ? `${zoneObj(zoneSel).name}` : zoneSel ? "分區工項提示" : "回功能表",
+      // 此模組沿用全域「主畫面」島；返回只保留一顆浮動「回上一頁」，避免同頁重複導航。
+      , React.createElement(BackIsland, {
         onBack: () => { if (monthSel) setMonthSel(null); else if (yearSel) setYearSel(null); else if (zoneSel) setZoneSel(null); else onBack(); },}
       )
       , React.createElement('div', { className: "px-4 py-3" , style: { borderBottom: `1px solid ${C.line}` },}
@@ -8889,7 +8898,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId }) {
         )
       )
 
-      , React.createElement('div', { className: "px-4 py-2 text-xs text-center"   , style: { color: C.inkSoft, fontFamily: "Inter" },}, "平面圖工項表格儲存時即依「儲存當下的年月」自動歸入該區該月資料夾；此畫面僅供檢視，如需編輯請回平面圖操作"
+      , React.createElement('div', { className: "px-4 py-2 text-xs text-center"   , style: { color: C.inkSoft, fontFamily: "Inter", paddingBottom: "calc(88px + env(safe-area-inset-bottom, 0px))" },}, "平面圖工項表格儲存時即依「儲存當下的年月」自動歸入該區該月資料夾；此畫面僅供檢視，如需編輯請回平面圖操作"
 
       )
 
