@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.997・一秒長按快捷介面・留言鎖定";
+const APP_VERSION = "V4.998・三擊快捷介面・留言鎖定";
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -763,29 +763,26 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
   const [showBackup, setShowBackup] = useState(false);
   const [bossShortcutOpen, setBossShortcutOpen] = useState(false);
   const [ipadShortcutOpen, setIpadShortcutOpen] = useState(false);
-  const [shortcutHolding, setShortcutHolding] = useState(null);
-  const bossHoldTimerRef = useRef(null);
-  const ipadHoldTimerRef = useRef(null);
+  const shortcutTapRef = useRef({ boss: { count: 0, timer: null }, ipad: { count: 0, timer: null } });
   const shortcutAutoCloseRef = useRef(null);
-  const startShortcutHold = (kind) => {
-    const ref = kind === "boss" ? bossHoldTimerRef : ipadHoldTimerRef;
-    window.clearTimeout(ref.current);
-    setShortcutHolding(kind);
-    ref.current = window.setTimeout(() => {
-      setShortcutHolding(null);
-      if (kind === "boss") setBossShortcutOpen(true); else setIpadShortcutOpen(true);
+  const shortcutTripleTap = (kind, e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const slot = shortcutTapRef.current[kind];
+    window.clearTimeout(slot.timer);
+    slot.count += 1;
+    if (slot.count >= 3) {
+      slot.count = 0;
+      slot.timer = null;
+      if (kind === "boss") { setIpadShortcutOpen(false); setBossShortcutOpen(true); }
+      else { setBossShortcutOpen(false); setIpadShortcutOpen(true); }
       window.clearTimeout(shortcutAutoCloseRef.current);
       shortcutAutoCloseRef.current = window.setTimeout(() => { setBossShortcutOpen(false); setIpadShortcutOpen(false); }, 3000);
-    }, 1000);
-  };
-  const cancelShortcutHold = (kind) => {
-    const ref = kind === "boss" ? bossHoldTimerRef : ipadHoldTimerRef;
-    window.clearTimeout(ref.current); ref.current = null;
-    setShortcutHolding((v) => v === kind ? null : v);
+      return;
+    }
+    slot.timer = window.setTimeout(() => { slot.count = 0; slot.timer = null; }, 900);
   };
   useEffect(() => () => {
-    window.clearTimeout(bossHoldTimerRef.current);
-    window.clearTimeout(ipadHoldTimerRef.current);
+    ["boss","ipad"].forEach((k) => window.clearTimeout(shortcutTapRef.current[k].timer));
     window.clearTimeout(shortcutAutoCloseRef.current);
   }, []);
   const [homeNow, setHomeNow] = useState(() => new Date());
@@ -905,7 +902,7 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
         @keyframes bossStarTwinkle { 0%,100%{opacity:.45;transform:scale(.82) rotate(0deg);text-shadow:0 0 5px #fff,0 0 12px #ffd34d} 50%{opacity:1;transform:scale(1.35) rotate(20deg);text-shadow:0 0 10px #fff,0 0 22px #ffd34d,0 0 38px #ff9f1a} }
         .boss-logo-star { animation: bossStarTwinkle 1.25s ease-in-out infinite; }
         .ipad-report-shortcut { display:none; }
-        @media (min-width: 768px) and (pointer: coarse) { .ipad-report-shortcut { display:flex; } }
+        @media (min-width: 700px) { .ipad-report-shortcut { display:flex; } }
         @keyframes appleSoftGlow { 0%,100%{opacity:.82;transform:scale(.96);filter:drop-shadow(0 0 5px #fff) drop-shadow(0 0 13px #19bfff)} 50%{opacity:1;transform:scale(1.10);filter:drop-shadow(0 0 10px #fff) drop-shadow(0 0 24px #00a8ff) drop-shadow(0 0 42px #0077ff)} }
         .apple-soft-glow { animation: appleSoftGlow 1.25s ease-in-out infinite; }
         @keyframes shortcutHoldRing { from{transform:rotate(-90deg)} to{transform:rotate(270deg)} }
@@ -960,27 +957,20 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
 
         , React.createElement('div', { className: "relative w-full max-w-md mx-4 rounded-2xl overflow-hidden shadow-lg"      , style: { border: `1px solid ${C.line}` },}
           , React.createElement(IllustratedMap, null )
-          /* 老闆隱藏捷徑：長按1秒，僅直達功能7既有表一／表三 */
+          /* 老闆隱藏捷徑：連點三下，僅直達功能7既有表一／表三 */
           , React.createElement('button', {
-              type:'button', onPointerDown:()=>startShortcutHold('boss'), onPointerUp:()=>cancelShortcutHold('boss'), onPointerCancel:()=>cancelShortcutHold('boss'), onPointerLeave:()=>cancelShortcutHold('boss'), onContextMenu:(e)=>e.preventDefault(), 'aria-label':'功能7表一表三快捷入口',
-              style:{position:'absolute',left:'2.5%',top:'2.5%',width:'24%',height:'13%',zIndex:18,background:'transparent',border:'none',padding:0,cursor:'pointer',touchAction:'none'}
+              type:'button', onClick:(e)=>shortcutTripleTap('boss',e), onContextMenu:(e)=>e.preventDefault(), 'aria-label':'功能7表一表三三擊快捷入口',
+              style:{position:'absolute',left:'2.5%',top:'2.5%',width:'24%',height:'13%',zIndex:18,background:'transparent',border:'none',padding:0,cursor:'pointer',touchAction:'manipulation'}
             }, React.createElement('span',{className:'boss-logo-star',style:{position:'absolute',right:3,top:1,color:'#FFF7B0',fontSize:18,lineHeight:1}},'✦'))
-          /* iPad 隱藏回報捷徑：長按1秒後選溫室，沿用既有工作回報 */
+          /* iPad 隱藏回報捷徑：連點三下後選溫室，沿用既有工作回報 */
           , React.createElement('button', {
-              type:'button', onPointerDown:()=>startShortcutHold('ipad'), onPointerUp:()=>cancelShortcutHold('ipad'), onPointerCancel:()=>cancelShortcutHold('ipad'), onPointerLeave:()=>cancelShortcutHold('ipad'), onContextMenu:(e)=>e.preventDefault(), 'aria-label':'iPad 工作回報捷徑',
+              type:'button', onClick:(e)=>shortcutTripleTap('ipad',e), onContextMenu:(e)=>e.preventDefault(), 'aria-label':'iPad 工作回報三擊捷徑',
               className:'ipad-report-shortcut apple-soft-glow',
-              style:{position:'absolute',right:10,top:10,zIndex:18,width:42,height:42,alignItems:'center',justifyContent:'center',background:'rgba(5,25,48,.78)',border:'1.5px solid rgba(150,235,255,.95)',borderRadius:'50%',color:'white',fontSize:25,fontWeight:700,boxShadow:'0 0 10px #fff,0 0 24px rgba(0,174,255,.92),0 0 42px rgba(0,110,255,.60)',touchAction:'none'}
+              style:{position:'absolute',right:10,top:10,zIndex:18,width:42,height:42,alignItems:'center',justifyContent:'center',background:'rgba(5,25,48,.78)',border:'1.5px solid rgba(150,235,255,.95)',borderRadius:'50%',color:'white',fontSize:25,fontWeight:700,boxShadow:'0 0 10px #fff,0 0 24px rgba(0,174,255,.92),0 0 42px rgba(0,110,255,.60)',touchAction:'manipulation'}
             }, '')
-          , shortcutHolding && React.createElement('div',{
-              style:{position:'absolute',inset:0,zIndex:55,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',background:'rgba(0,0,0,.16)'}
-            }, React.createElement('div',{style:{position:'relative',width:92,height:92,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:shortcutHolding==='boss'?'rgba(54,36,5,.86)':'rgba(4,28,58,.88)',boxShadow:shortcutHolding==='boss'?'0 0 22px #ffd54a,0 0 48px rgba(255,159,10,.75)':'0 0 22px #47d7ff,0 0 48px rgba(0,119,255,.75)',border:'2px solid rgba(255,255,255,.88)',animation:'shortcutPulse .7s ease-in-out infinite'}},
-              React.createElement('div',{style:{position:'absolute',inset:7,borderRadius:'50%',border:'5px solid transparent',borderTopColor:shortcutHolding==='boss'?'#ffd54a':'#47d7ff',borderRightColor:shortcutHolding==='boss'?'#ffd54a':'#47d7ff',animation:'shortcutHoldRing 1s linear forwards'} }),
-              React.createElement('div',{style:{color:'white',fontWeight:900,fontSize:24,textShadow:'0 0 10px currentColor'}},'1'),
-              React.createElement('div',{style:{position:'absolute',top:98,color:'white',fontWeight:800,fontSize:13,whiteSpace:'nowrap',textShadow:'0 1px 5px #000'}},'長按 1 秒')
-            ))
           , bossShortcutOpen && React.createElement('div',{
               style:{position:'fixed',inset:0,zIndex:70,display:'flex',alignItems:'center',justifyContent:'center',padding:18,background:'rgba(0,14,18,.72)',backdropFilter:'blur(5px)'}, onClick:()=>setBossShortcutOpen(false)
-            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(92vw,520px)',padding:20,borderRadius:24,background:'linear-gradient(145deg,rgba(6,35,34,.97),rgba(8,20,30,.97))',border:'2px solid #ffd34d',boxShadow:'0 0 12px #fff3,0 0 30px #ffbf24,0 0 70px rgba(255,157,0,.48)'}},
+            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(88vw,620px)',padding:'26px 24px',borderRadius:28,background:'linear-gradient(145deg,rgba(6,35,34,.97),rgba(8,20,30,.97))',border:'2px solid #ffd34d',boxShadow:'0 0 12px #fff3,0 0 30px #ffbf24,0 0 70px rgba(255,157,0,.48)'}},
               React.createElement('div',{style:{textAlign:'center',color:'#ffe27a',fontSize:20,fontWeight:900,marginBottom:14,textShadow:'0 0 12px #ffb300'}},'功能7'),
               React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
                 React.createElement('button',{onClick:()=>{setBossShortcutOpen(false);onBossTable&&onBossTable('materials');},style:{minHeight:120,borderRadius:20,border:'2px solid #4fffb0',background:'rgba(0,90,63,.36)',color:'white',boxShadow:'0 0 16px rgba(79,255,176,.75),inset 0 0 20px rgba(79,255,176,.14)',fontWeight:900,fontSize:24}},'表一',React.createElement('div',{style:{fontSize:13,marginTop:8,fontWeight:700}},'耗材匯總表')),
@@ -989,7 +979,7 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
             ))
           , ipadShortcutOpen && React.createElement('div',{
               style:{position:'fixed',inset:0,zIndex:70,display:'flex',alignItems:'center',justifyContent:'center',padding:18,background:'rgba(0,14,25,.74)',backdropFilter:'blur(5px)'}, onClick:()=>setIpadShortcutOpen(false)
-            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(92vw,560px)',padding:20,borderRadius:24,background:'linear-gradient(145deg,rgba(3,35,50,.98),rgba(5,20,35,.98))',border:'2px solid #48ddff',boxShadow:'0 0 14px #fff3,0 0 34px #18bfff,0 0 75px rgba(0,119,255,.52)'}},
+            }, React.createElement('div',{onClick:(e)=>e.stopPropagation(),style:{width:'min(88vw,620px)',padding:'26px 24px',borderRadius:28,background:'linear-gradient(145deg,rgba(3,35,50,.98),rgba(5,20,35,.98))',border:'2px solid #48ddff',boxShadow:'0 0 14px #fff3,0 0 34px #18bfff,0 0 75px rgba(0,119,255,.52)'}},
               React.createElement('div',{style:{textAlign:'center',color:'white',fontSize:34,marginBottom:2,textShadow:'0 0 14px #42d8ff,0 0 30px #0077ff'}},''),
               React.createElement('div',{style:{textAlign:'center',color:'#dff9ff',fontSize:20,fontWeight:900,marginBottom:14}},'選擇溫室'),
               React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}, ZONES.map((z)=>React.createElement('button',{key:z.id,onClick:()=>{setIpadShortcutOpen(false);onEnter(z);},style:{padding:'15px 8px',borderRadius:16,border:'1.5px solid #4ee8ff',background:'rgba(0,86,108,.28)',color:'white',fontSize:18,fontWeight:900,boxShadow:'0 0 12px rgba(78,232,255,.35)'}},z.short||z.name))),
