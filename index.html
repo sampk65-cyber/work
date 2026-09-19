@@ -3702,7 +3702,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
     runWrite(data);
     runZoneWrite(zoneData);
     showReportShortcutDialog(() => {
-      if (typeof onGoReport === "function") onGoReport();
+      if (typeof onGoReport === "function") onGoReport(workDate);
     });
   };
 
@@ -7088,7 +7088,7 @@ function ZoneNoticeBoard({ role, loggedInId }) {
 }
 
 // 儲存 key：attendance:{personId}:{YYYY-MM-DD}，一人一天一筆，記錄上班/下班時間與請假狀態
-function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null }) {
+function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initialWorkDate = null }) {
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState({}); // index[zoneId][year][month] = [{cellId, ym, latest}]
   const [pendingByZone, setPendingByZone] = useState({}); // { [zoneId]: 待確認格數 }，用於在資料夾根畫面明顯提示
@@ -7325,7 +7325,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null }) {
 
   // 指令3：從報表資料夾點進去，一律唯讀（強制 role="user"），不論實際身分；固定讀取該筆記錄所屬的月份
   if (openCell) {
-    return React.createElement(CellWorkTable, { zone: openCell.zone, cellId: openCell.cellId, ym: openCell.ym, role: "user", onClose: () => setOpenCell(null), loggedInId: loggedInId,} );
+    return React.createElement(CellWorkTable, { zone: openCell.zone, cellId: openCell.cellId, ym: openCell.ym, workDate: (initialWorkDate && initialWorkDate.slice(0,7) === openCell.ym ? initialWorkDate : null), role: "user", onClose: () => setOpenCell(null), loggedInId: loggedInId,} );
   }
 
   const records = (_optionalChain([index, 'access', _259 => _259[zoneSel], 'optionalAccess', _260 => _260[yearSel], 'optionalAccess', _261 => _261[monthSel]])) || [];
@@ -8134,6 +8134,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   // 導覽修正：全域功能改為單一路由，避免多個布林開關殘留而疊出錯誤頁面。
   const [globalView, setGlobalView] = useState(null);
   const [reportShortcutZone, setReportShortcutZone] = useState(null);
+  const [reportShortcutWorkDate, setReportShortcutWorkDate] = useState(null);
   const [pendingPermCount, setPendingPermCount] = useState(0);
   const [currentPersonPerm, setCurrentPersonPerm] = useState(null);
 
@@ -8371,7 +8372,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       , globalView === "report1" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, shortcutKey:"materials",} )
       , globalView === "report3" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, shortcutKey:"zoneMaterials",} )
       , globalView === "calendar" && React.createElement(MasterCalendar, { onBack: backToMap, role: roleForMenu(4),} )
-      , globalView === "folders" && React.createElement(ZoneWorkFolders, { onBack: () => { setReportShortcutZone(null); backToMap(); }, role: roleForMenu(3), loggedInId: loggedInId, initialZoneId: reportShortcutZone,} )
+      , globalView === "folders" && React.createElement(ZoneWorkFolders, { onBack: () => { setReportShortcutZone(null); setReportShortcutWorkDate(null); backToMap(); }, role: roleForMenu(3), loggedInId: loggedInId, initialZoneId: reportShortcutZone, initialWorkDate: reportShortcutWorkDate,} )
       , globalView === "photos" && React.createElement(FeatureZonePortal, { type: "photos", onBack: backToMap, role: featureRole(5), loggedInId: loggedInId,} )
       , globalView === "trees" && React.createElement(FeatureZonePortal, { type: "trees", onBack: backToMap, role: treeRole(), loggedInId: loggedInId,} )
       , globalView === "personnel" && React.createElement(PersonnelMenu, { onBack: backToMap, role: roleForMenu(0), onChanged: refreshPendingCount,} )
@@ -8396,7 +8397,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
         )
       )
       , zone && view === "floorplan" && (
-        React.createElement(FloorPlan, { zone: zone, onBack: backToMenu, role: roleForMenu(3), onCycleRole: cycleRole, loggedInId: loggedInId, onGoReport: () => openGlobalView("folders"), onHome: backToMap,} )
+        React.createElement(FloorPlan, { zone: zone, onBack: backToMenu, role: roleForMenu(3), onCycleRole: cycleRole, loggedInId: loggedInId, onGoReport: (d) => { setReportShortcutZone(zone.id); setReportShortcutWorkDate(d || null); openGlobalView("folders"); }, onHome: backToMap,} )
       )
       , zone && view === "spray" && (
         React.createElement(SprayWorksheet, { zone: zone, onBack: backToMenu, role: roleForMenu(6),} )
