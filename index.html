@@ -5810,16 +5810,14 @@ function ZoneMaterialsReport({ year, month, onBack }) {
       if (res) {
         const zdata = JSON.parse(res.value);
 
-        // 表三相容讀取：新紀錄以 confirmHistory 為準；舊月份若某資材沒有 history，
-        // 才回退讀取同月 confirmedTotals。逐資材 fallback，避免新舊資料重複加總。
-        const historyRows = new Set();
+        // 表三原則：只有「回報確認」才算數，且回報必有時間 → 月曆與彙總都只認 confirmHistory
         (zdata.confirmHistory || []).forEach((h) => {
           if (!h || !h.rowKey) return;
           const qty = parseFloat(h.qty);
           if (isNaN(qty) || qty <= 0) return;
           const d = dayFromStamp(h.at);
+          // 有回報時間才入格；無時間的歷史不入（正常流程回報都會帶 at）
           if (d == null) return;
-          historyRows.add(h.rowKey);
           pushDay(d, {
             rowKey: h.rowKey,
             qty,
@@ -5831,12 +5829,6 @@ function ZoneMaterialsReport({ year, month, onBack }) {
           if (nextTotals[h.rowKey] !== undefined) {
             nextTotals[h.rowKey] = (nextTotals[h.rowKey] || 0) + qty;
           }
-        });
-        Object.entries(zdata.confirmedTotals || {}).forEach(([rowKey, raw]) => {
-          if (historyRows.has(rowKey) || nextTotals[rowKey] === undefined) return;
-          const qty = parseFloat(raw);
-          if (isNaN(qty) || qty <= 0) return;
-          nextTotals[rowKey] = qty;
         });
       }
       setTotals(nextTotals);
@@ -6129,28 +6121,27 @@ function ZoneMaterialsReport({ year, month, onBack }) {
   );
 }
 
-// ============ 功能表10：上下班打卡（只綁人員；正常上班／加班分開；請假可編輯假別；手機 GPS） ============
-// storage：
-//   attendance:{personId}:{YYYY-MM-DD}
-//     { regular:{punches,geo}, overtime:{punches,geo}, leave:{type,note,hours?}, ... }
-//   attendancePref:{personId} → { restStart, restEnd }
-//   attendanceLeaveTypes → ["病假","事假",...] 全場共用假別清單（可編輯）
-const ATTEND_SLOTS = [
-  { key: "amIn", label: "第一輪上班" },
-  { key: "amOut", label: "第一輪下班" },
-  { key: "pmIn", label: "第二輪上班" },
-  { key: "pmOut", label: "第二輪下班" },
-];
-const DEFAULT_LEAVE_TYPES = ["病假", "事假", "特休", "彈性工時", "其他"];
-const ATTEND_COLORS = {
-  panelBorder: "#2E5FA3",
-  panelBg: "#F3F8FC",
-  inBg: "#DCEFE0", inText: "#2E8577", inBorder: "#2E857740",
-  outBg: "#F7DCE2", outText: "#B5455B", outBorder: "#B5455B40",
-  leaveBg: "#FFFFFF", leaveText: "#2B2119", leaveBorder: "#E4D9C8",
-  otBg: "#FFF3D6", otText: "#B8860B", otBorder: "#B8860B40",
-  tabOn: "#2E5FA3",
+// 24節氣對照月份（依國曆固定月份，年年變動在1-2天內，農場排程用途足夠精確）
+const SOLAR_TERMS_BY_MONTH = {
+  1: "小寒／大寒", 2: "立春／雨水", 3: "驚蟄／春分", 4: "清明／穀雨",
+  5: "立夏／小滿", 6: "芒種／夏至", 7: "小暑／大暑", 8: "立秋／處暑",
+  9: "白露／秋分", 10: "寒露／霜降", 11: "立冬／小雪", 12: "大雪／冬至",
 };
+
+const CALENDAR_ROWS = [
+  { id: "p1", name: "一期" },
+  { id: "p2", name: "二期" },
+  { id: "zone3", name: "三期" },
+  { id: "south4", name: "四南" },
+  { id: "north4", name: "四北" },
+  { id: "zone5", name: "五期" },
+  { id: "prod", name: "生產區域" },
+];
+
+// 各分區格數 = 面積權重代理值，總和27區塊 x 上下半月 = 54階，用於生產區域熱力圖計算
+const ZONE_BLOCK_COUNTS = { p1: 2, p2: 3, zone3: 6, south4: 4, north4: 4, zone5: 8 };
+const TOTAL_HALF_UNITS = Object.values(ZONE_BLOCK_COUNTS).reduce((s, n) => s + n, 0) * 2; // 54
+
 function taipeiDateKey(d) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d || new Date());
   const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
