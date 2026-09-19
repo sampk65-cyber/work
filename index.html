@@ -814,7 +814,7 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
     try {
       const listRes = await window.storage.list("worklog:");
       const keys = _optionalChain([listRes, 'optionalAccess', _3 => _3.keys]) || [];
-      const ym = currentMonthKey();
+      const ym = selectedYm;
       const validKeys = keys.filter((k) => {
         const rest = k.startsWith("worklog:") ? k.slice("worklog:".length) : k;
         const parts = rest.split(":");
@@ -3559,7 +3559,17 @@ function PrintLog({ refreshKey }) {
   );
 }
 
-function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport, onHome }) {
+function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, onGoReport, onHome }) {
+  // A01 補登模式：只改本輪工作所屬日期/月份，不改系統時間。
+  const actionStamp = () => {
+    if (loggedInId === "A01" && workDate) {
+      const d = new Date();
+      const tp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+      const g = (t) => (tp.find((x) => x.type === t) || {}).value || "00";
+      return `${workDate.replace(/-/g, "/")} ${g("hour")}:${g("minute")}`;
+    }
+    return nowStamp();
+  };
   const workScrollRef = useRef(null);
   const keepInputVisible = (el) => {
     const reveal = () => {
@@ -3589,7 +3599,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
   const shape = FLOOR_SHAPES[zone.id];
   // 指令修正：儲存內容需對應到「該區該月」的資料夾，key 內含年月；
   // 從平面圖進來(未帶 ym)一律對應「當下月份」，從功能表4資料夾點進來(帶 ym)則固定讀該月
-  const activeYm = ym || currentMonthKey();
+  const activeYm = ym || ((loggedInId === "A01" && workDate) ? workDate.slice(0, 7) : currentMonthKey());
   const storeKey = `worklog:${zone.id}:${cellId}:${activeYm}`;
   const blank = {
     levels: {}, checks: {}, extra: {}, multi8Main: [], extra8: {}, pending: {}, timestamps: {},
@@ -3642,7 +3652,31 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     setSaveStatus("saving");
     zoneWriteQueueRef.current = zoneWriteQueueRef.current
       .catch(() => {})
-      .then(() => window.storage.set(zoneKey, JSON.stringify(next), true))
+      .then(async () => {
+        // 資料安全鎖：取消/刪除未完成指定不得讓已完成成果縮水。
+        // 先讀遠端最新版，再保護 confirmHistory / confirmedTotals，最後才寫回。
+        let safeNext = next;
+        try {
+          const existingRes = await window.storage.get(zoneKey, true);
+          if (existingRes && existingRes.value) {
+            const existing = JSON.parse(existingRes.value);
+            const oldHistory = Array.isArray(existing.confirmHistory) ? existing.confirmHistory : [];
+            const newHistory = Array.isArray(next.confirmHistory) ? next.confirmHistory : [];
+            const protectedHistory = newHistory.length >= oldHistory.length ? newHistory : oldHistory;
+            const oldTotals = existing.confirmedTotals || {};
+            const newTotals = next.confirmedTotals || {};
+            const protectedTotals = { ...oldTotals, ...newTotals };
+            Object.keys(oldTotals).forEach((k) => {
+              const a = Number(oldTotals[k]); const b = Number(newTotals[k]);
+              if (Number.isFinite(a) && (!Number.isFinite(b) || b < a)) protectedTotals[k] = oldTotals[k];
+            });
+            safeNext = { ...next, confirmHistory: protectedHistory, confirmedTotals: protectedTotals };
+            zoneDataRef.current = safeNext;
+            setZoneData(safeNext);
+          }
+        } catch (_) {}
+        return window.storage.set(zoneKey, JSON.stringify(safeNext), true);
+      })
       .then((result) => {
         if (!result) throw new Error("storage.set 回傳空值");
         if (lastZonePayloadRef.current === next) {
@@ -3705,7 +3739,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     setData(next);
     runWrite(next);
   };
-  const touch = (itemId) => ({ [itemId]: { ...data.timestamps[itemId], changedAt: nowStamp() } });
+  const touch = (itemId) => ({ [itemId]: { ...data.timestamps[itemId], changedAt: actionStamp() } });
 
   // 設計者/管理者變更 → 標記該項為「待確認」(醒目提示) + 記錄時間；新異動一律清空舊回覆，讓「一給一收」保持乾淨的一輪一輪對應
   const setLevel = (itemId, lvl) => {
@@ -3737,7 +3771,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       checks: { ...zoneData.checks, [itemId]: nextVal },
       extra: nextExtra,
       pending: { ...zoneData.pending, [itemId]: !!nextVal },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: nowStamp() } },
+      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: actionStamp() } },
     });
   };
   const selected67From = (src, itemId) => {
@@ -3765,7 +3799,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       pending: { ...base.pending, [itemId]: arr.length > 0 },
       progress: nextProgress,
       confirmedBy: nextConfirmedBy,
-      timestamps: { ...base.timestamps, [itemId]: { ...base.timestamps[itemId], changedAt: nowStamp() } },
+      timestamps: { ...base.timestamps, [itemId]: { ...base.timestamps[itemId], changedAt: actionStamp() } },
     });
   };
 
@@ -3788,7 +3822,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       checks: { ...zoneData.checks, [itemId]: arr[0] || null },
       extra: { ...zoneData.extra, [itemId]: nextExtra },
       pending: { ...zoneData.pending, [itemId]: arr.length > 0 },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: nowStamp() } },
+      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: actionStamp() } },
     });
   };
 
@@ -3818,7 +3852,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
     const nextProgress = { ...base.progress };
     const nextConfirmedBy = { ...base.confirmedBy };
     if (arr.length > 0) { delete nextProgress[8]; delete nextConfirmedBy[8]; }
-    persistZone({ ...base, multi8Main: arr, pending: { ...base.pending, 8: arr.length > 0 }, progress: nextProgress, confirmedBy: nextConfirmedBy, timestamps: { ...base.timestamps, 8: { ...base.timestamps[8], changedAt: nowStamp() } } });
+    persistZone({ ...base, multi8Main: arr, pending: { ...base.pending, 8: arr.length > 0 }, progress: nextProgress, confirmedBy: nextConfirmedBy, timestamps: { ...base.timestamps, 8: { ...base.timestamps[8], changedAt: actionStamp() } } });
   };
   const setExtra8 = (opt, value) => {
     if (!editable) return;
@@ -3863,10 +3897,15 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       progress: { ...data.progress, [itemId]: progressVal },
       confirmedBy: { ...data.confirmedBy, [itemId]: nextConfirmedBy },
       pending: { ...data.pending, [itemId]: progressVal > 1 },
-      timestamps: { ...data.timestamps, [itemId]: { ...data.timestamps[itemId], ackAt: nowStamp() } },
+      timestamps: { ...data.timestamps, [itemId]: { ...data.timestamps[itemId], ackAt: actionStamp() } },
     };
     if (progressVal === 1) next = captureItemIntoTotals(next, itemId); // 完成才累加＋清空，讓欄位能接收下一輪新指令
-    next = appendHistory(next, [{ itemId, itemName: itemNameOf(itemId), progress: progressVal, personId, personName: personNameOf(confirmerPeople, personId), at: nowStamp() }]);
+    next = appendHistory(next, [{ itemId, itemName: itemNameOf(itemId), progress: progressVal, personId, personName: personNameOf(confirmerPeople, personId), at: actionStamp() }]);
+    if (progressVal === 1 && ![6, 7, 8].includes(itemId)) {
+      const np = { ...next.progress }; delete np[itemId];
+      const nc = { ...next.confirmedBy }; delete nc[itemId];
+      next = { ...next, levels: { ...next.levels, [itemId]: 0 }, pending: { ...next.pending, [itemId]: false }, progress: np, confirmedBy: nc };
+    }
     persist(next);
   };
   // 快速確認：不用一一選人/選進度，直接把選中的項目一次標記為完成（進度1）
@@ -3889,10 +3928,12 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
         nextConfirmedBy[itemId] = already.includes(personId) ? already : [...already, personId];
         nextProgress[itemId] = 1;
         nextPending[itemId] = false;
-        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: nowStamp() };
-        historyEntriesData.push({ itemId, itemName: itemNameOf(itemId), progress: 1, personId, personName: personNameOf(quickPeople, personId), at: nowStamp() });
+        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: actionStamp() };
+        historyEntriesData.push({ itemId, itemName: itemNameOf(itemId), progress: 1, personId, personName: personNameOf(quickPeople, personId), at: actionStamp() });
       });
-      nextData = { ...data, progress: nextProgress, confirmedBy: nextConfirmedBy, pending: nextPending, timestamps: nextTimestamps };
+      const nextLevels = { ...data.levels };
+      levelIds.forEach((itemId) => { nextLevels[itemId] = 0; delete nextProgress[itemId]; delete nextConfirmedBy[itemId]; });
+      nextData = { ...data, levels: nextLevels, progress: nextProgress, confirmedBy: nextConfirmedBy, pending: nextPending, timestamps: nextTimestamps };
       nextData = appendHistory(nextData, historyEntriesData);
     }
 
@@ -3907,7 +3948,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
         nextConfirmedBy[itemId] = already.includes(personId) ? already : [...already, personId];
         nextProgress[itemId] = 1;
         nextPending[itemId] = false;
-        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: nowStamp() };
+        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: actionStamp() };
       });
       nextZone = { ...zoneData, progress: nextProgress, confirmedBy: nextConfirmedBy, pending: nextPending, timestamps: nextTimestamps };
 
@@ -3920,7 +3961,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
               const n = parseFloat(val);
               if (!isNaN(n) && n > 0) {
                 totals[material] = (totals[material] || 0) + n;
-                historyEntriesZone.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(quickPeople, personId), at: nowStamp() });
+                historyEntriesZone.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(quickPeople, personId), at: actionStamp() });
               }
             });
             nextZone = { ...nextZone, multi8Main: [], extra8: {} };
@@ -3930,7 +3971,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
               const n = parseFloat(val);
               if (rowKey && !isNaN(n) && n > 0) {
                 totals[rowKey] = (totals[rowKey] || 0) + n;
-                historyEntriesZone.push({ itemId, itemName: itemNameOf(itemId), rowKey, qty: n, personId, personName: personNameOf(quickPeople, personId), at: nowStamp() });
+                historyEntriesZone.push({ itemId, itemName: itemNameOf(itemId), rowKey, qty: n, personId, personName: personNameOf(quickPeople, personId), at: actionStamp() });
               }
             });
             nextZone = {
@@ -4018,7 +4059,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       const n = parseFloat(raw);
       if (!isNaN(n) && n > 0) {
         totals[opt] = (totals[opt] || 0) + n;
-        historyEntries.push({ itemId, itemName: itemNameOf(itemId), rowKey: opt, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: nowStamp() });
+        historyEntries.push({ itemId, itemName: itemNameOf(itemId), rowKey: opt, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: actionStamp() });
       }
     });
     if (historyEntries.length === 0) return;
@@ -4033,9 +4074,12 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       progress: { ...zoneData.progress, [itemId]: 1 },
       confirmedBy: { ...zoneData.confirmedBy, [itemId]: nextConfirmedBy },
       pending: { ...zoneData.pending, [itemId]: false },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], ackAt: nowStamp() } },
+      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], ackAt: actionStamp() } },
     };
     next = appendHistory(next, historyEntries);
+    const np = { ...next.progress }; delete np[itemId];
+    const nc = { ...next.confirmedBy }; delete nc[itemId];
+    next = { ...next, progress: np, confirmedBy: nc, pending: { ...next.pending, [itemId]: false } };
     persistZone(next);
     setConfirmItemId(null);
   };
@@ -4050,7 +4094,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       const n = parseFloat(val);
       if (!isNaN(n) && n > 0) {
         totals[material] = (totals[material] || 0) + n;
-        historyEntries.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: nowStamp() });
+        historyEntries.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: actionStamp() });
       }
     });
     if (historyEntries.length === 0) return;
@@ -4060,9 +4104,12 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, loggedInId, onGoReport
       progress: { ...zoneData.progress, 8: 1 },
       confirmedBy: { ...zoneData.confirmedBy, 8: nextConfirmedBy },
       pending: { ...zoneData.pending, 8: false },
-      timestamps: { ...zoneData.timestamps, 8: { ...zoneData.timestamps[8], ackAt: nowStamp() } },
+      timestamps: { ...zoneData.timestamps, 8: { ...zoneData.timestamps[8], ackAt: actionStamp() } },
     };
     next = appendHistory(next, historyEntries);
+    const np8 = { ...next.progress }; delete np8[8];
+    const nc8 = { ...next.confirmedBy }; delete nc8[8];
+    next = { ...next, progress: np8, confirmedBy: nc8, pending: { ...next.pending, 8: false } };
     persistZone(next);
     setConfirmItemId(null);
   };
@@ -5287,7 +5334,7 @@ function MonthlyReport({ year, month, onBack }) {
       });
       setRows(totals);
       setComputedYm(rangeLabel(startYm, endYm));
-      setLastUpdated(nowStamp());
+      setLastUpdated(actionStamp());
     } catch (e) {
       console.error(e);
     }
@@ -5412,7 +5459,7 @@ function MonthlyReport({ year, month, onBack }) {
     if (!draftRows) return;
     setDraftBusy(true);
     try {
-      const savedAt = nowStamp();
+      const savedAt = actionStamp();
       await window.storage.set(draftStorageKey(), JSON.stringify({
         name: draftName.trim() || `副表 ${rangeLabel(startYm, endYm)}`,
         note: draftNote.trim(), startYm, endYm, range: rangeLabel(startYm, endYm),
@@ -5851,7 +5898,7 @@ function ZoneMaterialsReport({ year, month, onBack }) {
       }
       setTotals(nextTotals);
       setDayMap(byDay);
-      setLastUpdated(nowStamp());
+      setLastUpdated(actionStamp());
     } catch (e) {
       console.error(e);
       setTotals(nextTotals);
@@ -6344,7 +6391,7 @@ function AnnualPlan({ onClose, refreshKey, onPrinted }) {
       Object.values(byYear).forEach((arr) => arr.sort((a, b) => a.m - b.m));
     });
     setRows(result);
-    setLastUpdated(nowStamp());
+    setLastUpdated(actionStamp());
     setUpdating(false);
   };
 
@@ -6783,7 +6830,7 @@ function ZoneNoticeBoard({ role, loggedInId }) {
       readBy: [],
       readAt: {},
       fullyReadAt: null,
-      postedAt: nowStamp(),
+      postedAt: actionStamp(),
     };
     const key = `zonenotice:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     try {
@@ -6798,7 +6845,7 @@ function ZoneNoticeBoard({ role, loggedInId }) {
     const actualReaderId = loggedInId;
     if ((selected.readBy || []).includes(actualReaderId)) { setModal(null); return; }
     setMarking(true);
-    const stamp = nowStamp();
+    const stamp = actionStamp();
     const nextReadBy = [...(selected.readBy || []), actualReaderId];
     const nextReadAt = { ...(selected.readAt || {}), [actualReaderId]: stamp };
     const allRead = (selected.recipientIds || []).length > 0 &&
@@ -6829,7 +6876,7 @@ function ZoneNoticeBoard({ role, loggedInId }) {
     if (!selected || !editText.trim()) return;
     setSavingEdit(true);
     const { key, ...payload } = selected;
-    const updated = { ...payload, text: editText.trim(), editedAt: nowStamp() };
+    const updated = { ...payload, text: editText.trim(), editedAt: actionStamp() };
     try {
       const result = await window.storage.set(selected.key, JSON.stringify(updated));
       if (result) { await load(); setModal("detail"); }
@@ -7541,6 +7588,9 @@ function FloorPlan({ zone, onBack, role, onCycleRole, loggedInId, onGoReport, on
   const [zoom, setZoom] = useState(1);
   const [pendingCells, setPendingCells] = useState({}); // { [cellId]: true } 本月有待確認異動的格子
   const [zoneWidePending, setZoneWidePending] = useState([]); // 6-8全區共用工項，本月待確認的項目名稱清單
+  const todayTaipei = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const [a01WorkDate, setA01WorkDate] = useState(todayTaipei);
+  const selectedYm = (loggedInId === "A01" && a01WorkDate) ? a01WorkDate.slice(0, 7) : currentMonthKey();
   const zoomIn = () => setZoom((z) => Math.min(2.5, +(z + 0.25).toFixed(2)));
   const zoomOut = () => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)));
   const zoomReset = () => setZoom(1);
@@ -7580,7 +7630,7 @@ function FloorPlan({ zone, onBack, role, onCycleRole, loggedInId, onGoReport, on
       }
     } catch (e34) { setZoneWidePending([]); }
   };
-  useEffect(() => { scanPending(); }, [zone.id]);
+  useEffect(() => { scanPending(); }, [zone.id, selectedYm]);
   // 從工項表格關閉回來時重新掃描一次，確保確認/異動後外框提示即時更新
   const closeCell = () => { setActiveCell(null); scanPending(); };
 
@@ -7594,6 +7644,11 @@ function FloorPlan({ zone, onBack, role, onCycleRole, loggedInId, onGoReport, on
           )
         )
       )
+      , loggedInId === "A01" && React.createElement('div', { className: "px-4 py-2 flex items-center gap-2 flex-wrap", style: { background: "#FFF8E7", borderBottom: `1px solid ${C.line}` },},
+          React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 800, fontSize: 13, color: C.ink },}, "A01 補登工作日期"),
+          React.createElement('input', { type: "date", value: a01WorkDate, max: todayTaipei, onChange: (e) => setA01WorkDate(e.target.value || todayTaipei), style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px", background: "white", fontFamily: "Inter", fontSize: 13 },}),
+          a01WorkDate !== todayTaipei && React.createElement('span', { style: { color: C.alert, fontFamily: "Inter", fontWeight: 700, fontSize: 12 },}, "補登模式")
+        )
       , React.createElement('div', { className: "flex items-center justify-between px-4 py-2"    , style: { borderBottom: `1px solid ${C.line}` },}
         , React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 15, color: C.ink },}, zone.name, " · 平面圖"  )
         , shape && (
@@ -7698,7 +7753,7 @@ function FloorPlan({ zone, onBack, role, onCycleRole, loggedInId, onGoReport, on
       )
 
       , activeCell && (
-        React.createElement(CellWorkTable, { zone: zone, cellId: activeCell, role: role, onClose: closeCell, loggedInId: loggedInId, onGoReport: onGoReport, onHome: onHome,} )
+        React.createElement(CellWorkTable, { zone: zone, cellId: activeCell, role: role, onClose: closeCell, ym: selectedYm, workDate: (loggedInId === "A01" ? a01WorkDate : null), loggedInId: loggedInId, onGoReport: onGoReport, onHome: onHome,} )
       )
     )
   );
