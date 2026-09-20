@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = 'V5.007';
+const APP_VERSION = 'V5.009';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -5252,7 +5252,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
   const confirmAssignmentSave = () => {
     // V5.003 前向事件制：每次「新增指定」建立唯一 eventId；舊歷史只讀不改。
     const freezeAssignments = (base, ids) => {
-      // V5.007：事件邊界沿用原工作範圍。
+      // V5.008：事件邊界沿用原工作範圍。
       // 1–5 同一分區一次新增指派共用一個 cell eventId；6–8 同一溫室一次新增指派共用一個 zone eventId。
       // 不改舊 confirmHistory / assignmentHistory，只對本次 pending 指派建立新的事件。
       const next = { ...base, timestamps: { ...(base.timestamps || {}) }, assignmentHistory: [...(base.assignmentHistory || [])] };
@@ -5639,7 +5639,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
       const n = parseFloat(val);
       if (!isNaN(n) && n > 0) {
         totals[material] = (totals[material] || 0) + n;
-        historyEntries.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: eventStampFor(zoneData, itemId, workDate) });
+        historyEntries.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: eventStampFor(zoneData, 8, workDate) });
       }
     });
     if (historyEntries.length === 0) return;
@@ -8808,7 +8808,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
       // 功能表4只讀掃描：直接命中既有 worklog 文件鍵，不依賴文件內 key 欄位。
       // 只讀取平面圖既有格位 × 既有年份月份；不修改導航、指定、儲存或回報。
       const validKeys = [];
-      // C61/V5.007：功能4依已選定層級縮小掃描範圍。
+      // C61/V5.008：功能4依已選定層級縮小掃描範圍。
       // 未定位時維持原索引能力；選定分區/年份/月後，只查該定位路徑，不再掃其他分區或月份。
       const scanZones = focusZone ? ZONES.filter((z) => z.id === focusZone) : ZONES;
       const scanYears = focusYear ? [Number(focusYear)] : FOLDER_YEARS;
@@ -9164,6 +9164,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
 
                     , React.createElement('div', { className: "flex items-center gap-1.5"  ,}
                       , React.createElement('div', { style: { fontFamily: "IBM Plex Mono", fontSize: 11, color: C.tableColor },}, fileNameOf(zoneSel, yearSel, monthSel, i))
+                      , rec.latest && React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono", marginLeft: 4 },}, rec.latest)
                       , statusLabel && (
                         React.createElement('span', { className: "px-1.5 py-0.5 rounded-full"  , style: { background: `${statusColor}18`, color: statusColor, fontFamily: "Inter", fontWeight: 700, fontSize: 9.5 },}
                           , statusLabel
@@ -9171,7 +9172,6 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
                       )
                     )
                     , React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 14, color: C.ink },}, rec.cellId)
-                    , React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, rec.latest)
                   )
                   , !exportMode && !rec.historyEventId && (role === "designer" || role === "manager" || role === "founder") && (
                     React.createElement('button', {
