@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = "V4.1000・登入語音恢復";
+const APP_VERSION = 'V5.003';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -930,6 +930,7 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
               , APP_VERSION
             )
           )
+          , React.createElement('div', { className: "inline-flex items-center px-3 py-1 mb-2 rounded-full", style: { background: `${C.brandBlue}12`, border: `1px solid ${C.brandBlue}35`, color: C.brandBlue, fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 12, letterSpacing: "0.04em" },}, "版本 ", APP_VERSION)
           , React.createElement('h1', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 26, color: C.ink },}, "藍帶無花果工項管理")
           , React.createElement('p', { className: "text-sm mt-1" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "點選溫室或功能表")
         )
@@ -3448,6 +3449,22 @@ function workStampForDate(workDate) {
   const t = nowStamp().split(" ")[1] || "00:00";
   return String(workDate).replace(/-/g, "/") + " " + t;
 }
+// 凍結規則：回報沿用「指定事件」的日期；只取現在時間作為回報時刻。
+// 舊資料沒有 changedAt 時才退回目前 workDate，不回寫舊紀錄。
+function eventStampFor(baseData, itemId, fallbackWorkDate) {
+  const ts = baseData && baseData.timestamps && baseData.timestamps[itemId];
+  const assignedAt = ts && ts.changedAt;
+  if (assignedAt) {
+    const day = String(assignedAt).trim().split(" ")[0].split("T")[0].replace(/\//g, "-");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return workStampForDate(day);
+  }
+  return workStampForDate(fallbackWorkDate);
+}
+function newWorkEventId() {
+  const d = new Date();
+  const p = (n, w=2) => String(n).padStart(w, "0");
+  return `EV${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${p(d.getMilliseconds(),3)}-${Math.random().toString(36).slice(2,7)}`;
+}
 function monthKeyOf(stamp) {
   if (!stamp) return null;
   const seg = stamp.split(" ")[0].split("/");
@@ -3564,7 +3581,7 @@ function PrintLog({ refreshKey }) {
   );
 }
 
-function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, onGoReport, onHome }) {
+function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, onGoReport, onHome, showOriginalHistory = false, historyDate = null, historyEventId = null }) {
   const workScrollRef = useRef(null);
   const keepInputVisible = (el) => {
     const reveal = () => {
@@ -3699,8 +3716,26 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
 
   const retrySave = () => { if (lastPayloadRef.current) runWrite(lastPayloadRef.current); };
   const confirmAssignmentSave = () => {
-    runWrite(data);
-    runZoneWrite(zoneData);
+    // V5.003 前向事件制：每次「新增指定」建立唯一 eventId；舊歷史只讀不改。
+    const freezeAssignments = (base, ids) => {
+      const next = { ...base, timestamps: { ...(base.timestamps || {}) }, assignmentHistory: [...(base.assignmentHistory || [])] };
+      const completed = new Set((base.confirmHistory || []).map((h) => h && h.eventId).filter(Boolean));
+      ids.forEach((itemId) => {
+        if (!(base.pending || {})[itemId]) return;
+        const oldTs = (base.timestamps || {})[itemId] || {};
+        let eventId = oldTs.eventId;
+        if (!eventId || completed.has(eventId)) eventId = newWorkEventId();
+        const assignedAt = oldTs.changedAt || workStampForDate(workDate);
+        next.timestamps[itemId] = { ...oldTs, changedAt: assignedAt, eventId };
+        if (!next.assignmentHistory.some((a) => a && a.eventId === eventId)) next.assignmentHistory.push({ eventId, itemId: Number(itemId), assignedAt });
+      });
+      return next;
+    };
+    const nextData = freezeAssignments(data, [1,2,3,4,5]);
+    const nextZone = freezeAssignments(zoneData, [6,7,8]);
+    setData(nextData); dataRef.current = nextData;
+    setZoneData(nextZone); zoneDataRef.current = nextZone;
+    runWrite(nextData); runZoneWrite(nextZone);
     showReportShortcutDialog(() => {
       if (typeof onGoReport === "function") onGoReport(workDate);
     });
@@ -3789,7 +3824,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
       checks: { ...zoneData.checks, [itemId]: arr[0] || null },
       extra: { ...zoneData.extra, [itemId]: nextExtra },
       pending: { ...zoneData.pending, [itemId]: arr.length > 0 },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], changedAt: workStampForDate(workDate) } },
+      timestamps: zoneData.timestamps, // 輸入數量只屬於同一事件，不改指定日期
     });
   };
 
@@ -3825,7 +3860,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
   // 使用者確認回報 → 記錄「這位受文者」對這個項目回報的進度(1~5)，因為現場常常無法一次做完；
   // 呼應級別欄「數字越大越緊急」的邏輯，這裡改成「數字越小完成度越高」：1＝完成（解除待確認），2~5＝仍在處理中、數字越大代表越初期
   // 工項6/7/8確認完成(進度=1)時，把數量累加進 confirmedTotals（跨月持續累計、不會被下一輪新指令覆蓋掉），
-  // 同時清空該項目目前的選項與數量欄位，讓格子能重新接收下一輪的新指令
+  // 原指定內容與數量欄位保留在同一張表
   const captureItemIntoTotals = (baseData, itemId) => {
     if (![6, 7, 8].includes(itemId)) return baseData;
     const totals = { ...(baseData.confirmedTotals || {}) };
@@ -3836,18 +3871,13 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
         const v = parseFloat(qty67(itemId, opt, baseData));
         if (!isNaN(v) && v > 0) totals[opt] = (totals[opt] || 0) + v;
       });
-      next = {
-        ...next,
-        [itemId === 6 ? "multi6" : "multi7"]: [],
-        checks: { ...next.checks, [itemId]: null },
-        extra: { ...next.extra, [itemId]: {} },
-      };
+      // 回報後保留原指定表內容；confirmedTotals 只在回報時累加。
     } else if (itemId === 8) {
       (baseData.multi8Main || []).forEach((opt) => {
         const v = parseFloat((baseData.extra8 || {})[opt]);
         if (!isNaN(v) && v > 0) totals[opt] = (totals[opt] || 0) + v;
       });
-      next = { ...next, multi8Main: [], extra8: {} };
+      // 回報後保留原指定表內容；confirmedTotals 只在回報時累加。
     }
     next.confirmedTotals = totals;
     return next;
@@ -3861,10 +3891,10 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
       progress: { ...data.progress, [itemId]: progressVal },
       confirmedBy: { ...data.confirmedBy, [itemId]: nextConfirmedBy },
       pending: { ...data.pending, [itemId]: progressVal > 1 },
-      timestamps: { ...data.timestamps, [itemId]: { ...data.timestamps[itemId], ackAt: workStampForDate(workDate) } },
+      timestamps: { ...data.timestamps, [itemId]: { ...data.timestamps[itemId], ackAt: eventStampFor(data, itemId, workDate) } },
     };
-    if (progressVal === 1) next = captureItemIntoTotals(next, itemId); // 完成才累加＋清空，讓欄位能接收下一輪新指令
-    next = appendHistory(next, [{ itemId, itemName: itemNameOf(itemId), progress: progressVal, personId, personName: personNameOf(confirmerPeople, personId), at: workStampForDate(workDate) }]);
+    if (progressVal === 1) next = captureItemIntoTotals(next, itemId); // 完成才累加；原指定表內容保留
+    next = appendHistory(next, [{ itemId, itemName: itemNameOf(itemId), level: (data.levels && data.levels[itemId]) || null, progress: progressVal, personId, personName: personNameOf(confirmerPeople, personId), at: eventStampFor(data, itemId, workDate) }]);
     persist(next);
   };
   // 快速確認：不用一一選人/選進度，直接把選中的項目一次標記為完成（進度1）
@@ -3887,8 +3917,8 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
         nextConfirmedBy[itemId] = already.includes(personId) ? already : [...already, personId];
         nextProgress[itemId] = 1;
         nextPending[itemId] = false;
-        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: workStampForDate(workDate) };
-        historyEntriesData.push({ itemId, itemName: itemNameOf(itemId), progress: 1, personId, personName: personNameOf(quickPeople, personId), at: workStampForDate(workDate) });
+        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: eventStampFor(data, itemId, workDate) };
+        historyEntriesData.push({ itemId, itemName: itemNameOf(itemId), level: (data.levels && data.levels[itemId]) || null, progress: 1, personId, personName: personNameOf(quickPeople, personId), at: eventStampFor(data, itemId, workDate) });
       });
       nextData = { ...data, progress: nextProgress, confirmedBy: nextConfirmedBy, pending: nextPending, timestamps: nextTimestamps };
       nextData = appendHistory(nextData, historyEntriesData);
@@ -3905,7 +3935,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
         nextConfirmedBy[itemId] = already.includes(personId) ? already : [...already, personId];
         nextProgress[itemId] = 1;
         nextPending[itemId] = false;
-        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: workStampForDate(workDate) };
+        nextTimestamps[itemId] = { ...nextTimestamps[itemId], ackAt: eventStampFor(zoneData, itemId, workDate) };
       });
       nextZone = { ...zoneData, progress: nextProgress, confirmedBy: nextConfirmedBy, pending: nextPending, timestamps: nextTimestamps };
 
@@ -3918,25 +3948,20 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
               const n = parseFloat(val);
               if (!isNaN(n) && n > 0) {
                 totals[material] = (totals[material] || 0) + n;
-                historyEntriesZone.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(quickPeople, personId), at: workStampForDate(workDate) });
+                historyEntriesZone.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(quickPeople, personId), at: eventStampFor(zoneData, itemId, workDate) });
               }
             });
-            nextZone = { ...nextZone, multi8Main: [], extra8: {} };
+            // 回報後保留原指定表內容，不清空 multi8Main / extra8。
           } else {
             const qtyMap = (qtyOverrides[itemId] && typeof qtyOverrides[itemId] === "object") ? qtyOverrides[itemId] : {};
             Object.entries(qtyMap).forEach(([rowKey, val]) => {
               const n = parseFloat(val);
               if (rowKey && !isNaN(n) && n > 0) {
                 totals[rowKey] = (totals[rowKey] || 0) + n;
-                historyEntriesZone.push({ itemId, itemName: itemNameOf(itemId), rowKey, qty: n, personId, personName: personNameOf(quickPeople, personId), at: workStampForDate(workDate) });
+                historyEntriesZone.push({ itemId, itemName: itemNameOf(itemId), rowKey, qty: n, personId, personName: personNameOf(quickPeople, personId), at: eventStampFor(zoneData, itemId, workDate) });
               }
             });
-            nextZone = {
-              ...nextZone,
-              [itemId === 6 ? "multi6" : "multi7"]: [],
-              checks: { ...nextZone.checks, [itemId]: null },
-              extra: { ...nextZone.extra, [itemId]: {} }
-            };
+            // 回報後保留原指定表內容，不清空 6/7 選項與數量。
           }
           nextZone.confirmedTotals = totals;
         } else {
@@ -3980,6 +4005,17 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
   // 進度確認小面板：受文者選自己是誰(限受文名單內) + 選1~5進度，兩者皆選才能送出
   const [confirmItemId, setConfirmItemId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  // 僅功能4：本格歷史限定原 worklog 的1–5；整區6–8在原表各自工項下呈現。
+  // 此處只讀，不回填目前欄位、不改原紀錄、不補日期。
+  const historyDayOf = (stamp) => {
+    if (!stamp) return "";
+    const raw = String(stamp).trim().split(" ")[0].split("T")[0];
+    return raw.replace(/\//g, "-");
+  };
+  const sameHistoryDate = (h) => (!historyEventId || (h && h.eventId === historyEventId)) && (!historyDate || historyDayOf(h && h.at) === historyDate);
+  const cellDisplayHistory = showOriginalHistory
+    ? (Array.isArray(data.confirmHistory) ? data.confirmHistory : []).filter((h) => h && [1, 2, 3, 4, 5].includes(Number(h.itemId)) && sameHistoryDate(h))
+    : (data.confirmHistory || []);
   const [confirmerPick, setConfirmerPick] = useState(null);
   const [showPersonSwitch, setShowPersonSwitch] = useState(false); // 是否要切換成別人來確認(預設用登入身分，不用每次都選)
   const [confirmerPeople, setConfirmerPeople] = useState([]);
@@ -4000,7 +4036,25 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
 
   // 把每一次確認/回報動作記錄成一筆歷史紀錄，之後可在「歷史紀錄」畫面查閱（誰、何時、確認了什麼、多少量）
   const appendHistory = (baseData, entries) => {
-    const history = [...(baseData.confirmHistory || []), ...entries];
+    // 前向凍結：只對「從現在開始的新回報」保存當下指定快照；舊 confirmHistory 原樣保留，不回填、不推算。
+    const frozenEntries = (entries || []).map((entry) => {
+      const itemId = Number(entry && entry.itemId);
+      const ts = (baseData.timestamps && baseData.timestamps[itemId]) || {};
+      const frozen = { ...entry, assignedAt: ts.changedAt || null, eventId: ts.eventId || null };
+      if (itemId >= 1 && itemId <= 5) {
+        frozen.assignedLevel = (baseData.levels && baseData.levels[itemId]) ?? null;
+      } else if (itemId === 6 || itemId === 7) {
+        const rk = entry && entry.rowKey;
+        frozen.assignedOption = rk || null;
+        frozen.assignedQty = rk && baseData.extra ? (baseData.extra[rk] ?? null) : null;
+      } else if (itemId === 8) {
+        const rk = entry && entry.rowKey;
+        frozen.assignedOption = rk || null;
+        frozen.assignedQty = rk && baseData.extra8 ? (baseData.extra8[rk] ?? null) : null;
+      }
+      return frozen;
+    });
+    const history = [...(baseData.confirmHistory || []), ...frozenEntries];
     return { ...baseData, confirmHistory: history };
   };
   const itemNameOf = (itemId) => _optionalChain([WORK_ITEMS, 'access', _72 => _72.find, 'call', _73 => _73((it) => it.id === itemId), 'optionalAccess', _74 => _74.name]) || `項目${itemId}`;
@@ -4016,7 +4070,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
       const n = parseFloat(raw);
       if (!isNaN(n) && n > 0) {
         totals[opt] = (totals[opt] || 0) + n;
-        historyEntries.push({ itemId, itemName: itemNameOf(itemId), rowKey: opt, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: workStampForDate(workDate) });
+        historyEntries.push({ itemId, itemName: itemNameOf(itemId), rowKey: opt, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: eventStampFor(zoneData, itemId, workDate) });
       }
     });
     if (historyEntries.length === 0) return;
@@ -4025,13 +4079,13 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
     let next = {
       ...zoneData,
       confirmedTotals: totals,
-      [itemId === 6 ? "multi6" : "multi7"]: [],
-      checks: { ...zoneData.checks, [itemId]: null },
-      extra: { ...zoneData.extra, [itemId]: {} },
+      [itemId === 6 ? "multi6" : "multi7"]: zoneData[itemId === 6 ? "multi6" : "multi7"],
+      checks: { ...zoneData.checks },
+      extra: { ...zoneData.extra },
       progress: { ...zoneData.progress, [itemId]: 1 },
       confirmedBy: { ...zoneData.confirmedBy, [itemId]: nextConfirmedBy },
       pending: { ...zoneData.pending, [itemId]: false },
-      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], ackAt: workStampForDate(workDate) } },
+      timestamps: { ...zoneData.timestamps, [itemId]: { ...zoneData.timestamps[itemId], ackAt: eventStampFor(zoneData, itemId, workDate) } },
     };
     next = appendHistory(next, historyEntries);
     persistZone(next);
@@ -4048,7 +4102,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
       const n = parseFloat(val);
       if (!isNaN(n) && n > 0) {
         totals[material] = (totals[material] || 0) + n;
-        historyEntries.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: workStampForDate(workDate) });
+        historyEntries.push({ itemId: 8, itemName: itemNameOf(8), rowKey: material, qty: n, personId, personName: personNameOf(confirmerPeople, personId), at: eventStampFor(zoneData, itemId, workDate) });
       }
     });
     if (historyEntries.length === 0) return;
@@ -4058,7 +4112,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
       progress: { ...zoneData.progress, 8: 1 },
       confirmedBy: { ...zoneData.confirmedBy, 8: nextConfirmedBy },
       pending: { ...zoneData.pending, 8: false },
-      timestamps: { ...zoneData.timestamps, 8: { ...zoneData.timestamps[8], ackAt: workStampForDate(workDate) } },
+      timestamps: { ...zoneData.timestamps, 8: { ...zoneData.timestamps[8], ackAt: eventStampFor(zoneData, 8, workDate) } },
     };
     next = appendHistory(next, historyEntries);
     persistZone(next);
@@ -4254,14 +4308,14 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
       )
 
       , (() => {
-        const combinedHistory = [...(data.confirmHistory || []), ...(zoneData.confirmHistory || [])];
+        const combinedHistory = [...cellDisplayHistory];
         return combinedHistory.length > 0 && (
           React.createElement('div', { className: "px-4 pt-2 flex-shrink-0"  ,}
             , React.createElement('button', {
               onClick: () => setShowHistory(true),
               className: "px-2.5 py-1.5 rounded-lg text-xs"   ,
               style: { background: `${C.inkSoft}18`, color: C.inkSoft, fontFamily: "Inter", fontWeight: 700 },}
-, "📋 歷史紀錄（"
+, showOriginalHistory ? "📋 本格歷史紀錄（" : "📋 歷史紀錄（"
                , combinedHistory.length, "筆）"
             )
           )
@@ -4369,6 +4423,10 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
           )
           , WORK_ITEMS.map((item, idx) => {
             const src = item.id <= 5 ? data : zoneData; // 1-5是每格各自資料，6-8是整區共用資料
+            const originalHistory = showOriginalHistory && Array.isArray(src.confirmHistory)
+              ? src.confirmHistory.filter((h) => h && Number(h.itemId) === item.id && sameHistoryDate(h))
+                  .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")))
+              : [];
             const isPending = isPendingReal(item.id); // 跟頂部待確認計數用同一套判斷，兩邊永遠一致
             const itemProgress = _optionalChain([src, 'access', _124 => _124.progress, 'optionalAccess', _125 => _125[item.id]]) || 0;
             const inProgress = isPending && itemProgress > 1; // 已有人回報過、但還沒做完(進度>1) → 用另一色區分於「完全未處理」
@@ -4378,7 +4436,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
             return (
               React.createElement('div', {
                 key: item.id,
-                className: "flex items-start" ,
+                className: showOriginalHistory ? "flex items-start flex-wrap" : "flex items-start" ,
                 style: {
                   borderTop: `1px solid ${C.line}`,
                   background: inProgress ? "#D4A01718" : isPending ? `${C.alert}14` : (idx % 2 === 0 ? C.paper : "#FBF8F2"),
@@ -4387,6 +4445,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
                 , React.createElement('div', { className: "flex-1 px-3 py-2 flex items-center gap-1.5 text-sm"      , style: { fontFamily: "Inter", color: C.ink, fontWeight: 500, minHeight: 40 },}
                   , isPending && React.createElement('span', { style: { width: 6, height: 6, borderRadius: 999, background: inProgress ? "#D4A017" : C.alert, display: "inline-block", flexShrink: 0 },} )
                   , item.id, ".", item.name
+                  , showOriginalHistory && item.id >= 6 && React.createElement('span', { className: "text-xs", style: { color: C.inkSoft, fontWeight: 400 },}, "（整區共用）")
                 )
 
                 , React.createElement('div', { className: "flex items-center gap-1 flex-wrap py-1.5"    , style: { width: 190 },}
@@ -4481,8 +4540,31 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
                   , _optionalChain([data, 'access', _148 => _148.recipientIds, 'optionalAccess', _149 => _149.length]) > 1 && confirmedList.length > 0 && (
                     React.createElement('span', { style: { fontSize: 9, color: C.inkSoft, fontFamily: "Inter" },}, confirmedList.length, "/", data.recipientIds.length, "人確認")
                   )
-                  , _optionalChain([ts, 'optionalAccess', _150 => _150.changedAt]) && React.createElement('span', { style: { fontSize: 9, color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, ts.changedAt)
+                  , _optionalChain([ts, 'optionalAccess', _150 => _150.changedAt]) && React.createElement('span', { style: { fontSize: 9, color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, "指定 ", ts.changedAt)
+                  , showOriginalHistory && _optionalChain([ts, 'optionalAccess', _151 => _151.ackAt]) && React.createElement('span', { style: { fontSize: 9, color: C.tableColor, fontFamily: "IBM Plex Mono", fontWeight: 700 },}, "回報 ", ts.ackAt)
                 )
+                , originalHistory.length > 0 && React.createElement('div', {
+                    className: "w-full px-3 pb-2 flex flex-col gap-2",
+                    style: { width: "100%", flexBasis: "100%", fontFamily: "Inter" },
+                  }, originalHistory.map((h, historyIndex) => React.createElement('div', {
+                    key: historyIndex, className: "p-3 rounded-xl", style: { background: C.cream },
+                  },
+                    h.assignedAt && React.createElement('div', { className: "text-xs mb-0.5", style: { color: C.inkSoft },},
+                      "指定 ", h.assignedAt,
+                      h.assignedLevel != null ? ` · 等級${h.assignedLevel}` : "",
+                      h.assignedOption ? ` · ${h.assignedOption}` : "",
+                      h.assignedQty != null && h.assignedQty !== "" ? ` ${h.assignedQty}` : ""
+                    ),
+                    React.createElement('div', { className: "text-xs mb-0.5", style: { color: C.tableColor, fontWeight: 700 },},
+                      "回報 ", h.at ?? "", h.personName ? " · " : "", h.personName ?? ""
+                    ),
+                    React.createElement('div', { style: { fontWeight: 600, fontSize: 13, color: C.ink },},
+                      h.itemName ?? "",
+                      h.rowKey != null && h.rowKey !== "" && React.createElement('span', { style: { color: C.tableColor },}, "・", h.rowKey, h.qty != null && h.qty !== "" ? " " : "", h.qty ?? ""),
+                      h.level != null && h.level !== "" && React.createElement('span', null, "・等級", h.level),
+                      h.progress != null && h.progress !== "" && React.createElement('span', { style: { color: h.progress === 1 ? C.tableColor : "#D4A017" },}, "・進度", h.progress)
+                    )
+                  )))
               )
             );
           })
@@ -4692,7 +4774,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
               , React.createElement('button', { onClick: () => setShowHistory(false),}, React.createElement(X, { size: 18, color: C.inkSoft,} ))
             )
             , React.createElement('div', { className: "overflow-y-auto flex-1 min-h-0 flex flex-col gap-2"     ,}
-              , [...(data.confirmHistory || []), ...(zoneData.confirmHistory || [])]
+              , [...cellDisplayHistory]
                 .sort((a, b) => (a.at < b.at ? 1 : -1))
                 .map((h, i) => (
                 React.createElement('div', { key: i, className: "p-3 rounded-xl" , style: { background: C.cream },}
@@ -4704,7 +4786,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
                   )
                 )
               ))
-              , (data.confirmHistory || []).length === 0 && (zoneData.confirmHistory || []).length === 0 && (
+              , cellDisplayHistory.length === 0 && (showOriginalHistory || (zoneData.confirmHistory || []).length === 0) && (
                 React.createElement('div', { className: "text-center py-8 text-sm"  , style: { color: C.inkSoft, fontFamily: "Inter" },}, "尚無歷史紀錄")
               )
             )
@@ -7102,6 +7184,16 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
   const [printItems, setPrintItems] = useState(null); // 產生列印預覽後，抓好資料的陣列 [{cellId, fileName, data}]
   const [printLoading, setPrintLoading] = useState(false);
 
+  // A01 回溯日期只負責定位既有回報資料夾的年月。
+  // 不改任何 Firebase / worklog / zonework / 表三 / 歷史資料 / 工作邏輯。
+  useEffect(() => {
+    if (!initialWorkDate) return;
+    const m = String(initialWorkDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return;
+    setYearSel(parseInt(m[1], 10));
+    setMonthSel(parseInt(m[2], 10));
+  }, [initialWorkDate]);
+
   const summarizeItem = (item, data) => {
     if (!data) return "-";
     if (item.type === "level") {
@@ -7133,6 +7225,20 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
     return "-";
   };
 
+  // 功能表4歷史內容：直接讀 confirmHistory；不從完成後已清空的目前欄位反推。
+  const formatHistoryEntry = (h) => {
+    if (!h) return "";
+    const name = h.itemName || itemNameOf(h.itemId);
+    if ([6, 7, 8].includes(Number(h.itemId))) {
+      const row = h.rowKey ? String(h.rowKey).replace(/^金旺$/, "金旺特") : "";
+      const qty = (h.qty !== undefined && h.qty !== null && h.qty !== "") ? ` ${h.qty}${Number(h.itemId) === 8 ? "kg" : (Number(h.itemId) === 6 && row === "噴灌" ? "分" : Number(h.itemId) === 6 ? "噸" : "包")}` : "";
+      return `${name}${row ? `・${row}` : ""}${qty}`;
+    }
+    const level = h.level ? `・等級${h.level}` : "";
+    const progress = h.progress ? `・進度${h.progress}` : "";
+    return `${name}${level}${progress}`;
+  };
+
   const toggleExportSelect = (cellId) => {
     setExportSelected((cur) => (cur.includes(cellId) ? cur.filter((x) => x !== cellId) : [...cur, cellId]));
   };
@@ -7162,15 +7268,20 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
     const pending = {};
     CALENDAR_ROWS.filter((r) => r.id !== "prod").forEach((r) => { idx[r.id] = {}; pending[r.id] = 0; });
     try {
-      const listRes = await window.storage.list("worklog:");
-      const keys = _optionalChain([listRes, 'optionalAccess', _246 => _246.keys]) || [];
-      // key 格式：worklog:{zoneId}:{cellId}:{YYYY-MM} — 直接依 key 內年月分類，
-      // 確保平面圖工項表格儲存的內容對應到正確的「該區該月」資料夾
-      const validKeys = keys.filter((k) => {
-        const rest = k.startsWith("worklog:") ? k.slice("worklog:".length) : k;
-        return rest.split(":").length === 3;
-      });
-      const results = await runWithLimit(validKeys, 6, async (k) => {
+      // 功能表4只讀掃描：直接命中既有 worklog 文件鍵，不依賴文件內 key 欄位。
+      // 只讀取平面圖既有格位 × 既有年份月份；不修改導航、指定、儲存或回報。
+      const validKeys = [];
+      for (const z of ZONES) {
+        const cells = (FLOOR_SHAPES[z.id] && FLOOR_SHAPES[z.id].cells) || [];
+        for (const cell of cells) {
+          for (const y of FOLDER_YEARS) {
+            for (let m = 1; m <= 12; m++) {
+              validKeys.push(`worklog:${z.id}:${cell.id}:${y}-${String(m).padStart(2, "0")}`);
+            }
+          }
+        }
+      }
+      const results = await runWithLimit(validKeys, 18, async (k) => {
         const rest = k.startsWith("worklog:") ? k.slice("worklog:".length) : k;
         const [zoneId, cellId, ym] = rest.split(":");
         try {
@@ -7195,10 +7306,13 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
         const y = parseInt(yStr, 10);
         const m = parseInt(mStr, 10);
         if (!y || !m) continue;
-        let latest = ym;
+        let latest = ""; // 缺少原時間就留白；資料夾年月不是紀錄日期。
         let status = "none"; // none=無指定工作 | assigned=已指定未回應 | partial=回報中未全部完成 | done=全部確認完成
+        let historySummary = "";
+        let dataForHistory = null;
         try {
           const data = JSON.parse(res.value);
+          dataForHistory = data;
           Object.values(data.timestamps || {}).forEach((t) => {
             if (_optionalChain([t, 'optionalAccess', _247 => _247.changedAt]) && (!latest || t.changedAt > latest)) latest = t.changedAt;
           });
@@ -7208,6 +7322,8 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
           }
           // 合併本格1-5的pending/progress，跟該分區同一年月的6-8 zonework資料
           const zw = zoneWorkMap[`${zoneId}:${ym}`] || {};
+          // 功能表4收斂：資料夾卡片不再重組/摘要 confirmHistory，也不以歷史資料改寫原時間。
+          // 點入後直接由原本 CellWorkTable 讀取同一份 worklog / zonework，呈現原表格、原內容、原日期。
           const isRealPendingKey = (id, v) => {
             if (!v) return false;
             if (["1", "2", "3", "4", "5"].includes(id)) return !!_optionalChain([data, 'access', _250 => _250.levels, 'optionalAccess', _251 => _251[id]]);
@@ -7228,7 +7344,43 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
         if (!idx[zoneId]) idx[zoneId] = {};
         if (!idx[zoneId][y]) idx[zoneId][y] = {};
         if (!idx[zoneId][y][m]) idx[zoneId][y][m] = [];
-        idx[zoneId][y][m].push({ cellId, ym, latest, status });
+        // C58/V5.003：新版「一指定＝一事件」。assignmentHistory 只追加新事件；舊資料不轉換。
+        const eventAssignments = [
+          ...((dataForHistory && Array.isArray(dataForHistory.assignmentHistory)) ? dataForHistory.assignmentHistory : []),
+          ...((zoneWorkMap[`${zoneId}:${ym}`] && Array.isArray(zoneWorkMap[`${zoneId}:${ym}`].assignmentHistory)) ? zoneWorkMap[`${zoneId}:${ym}`].assignmentHistory : [])
+        ];
+        const eventSeen = new Set();
+        eventAssignments.forEach((a) => {
+          if (!a || !a.eventId || eventSeen.has(a.eventId)) return;
+          eventSeen.add(a.eventId);
+          const assignedAt = a.assignedAt || "";
+          const historyDate = assignedAt ? String(assignedAt).trim().split(" ")[0].replace(/\//g, "-") : null;
+          const allHist = [
+            ...((dataForHistory && dataForHistory.confirmHistory) || []),
+            ...((zoneWorkMap[`${zoneId}:${ym}`] && zoneWorkMap[`${zoneId}:${ym}`].confirmHistory) || [])
+          ];
+          const done = allHist.some((h) => h && h.eventId === a.eventId);
+          idx[zoneId][y][m].push({ cellId, ym, historyDate, historyEventId: a.eventId, latest: assignedAt, status: done ? "done" : "assigned", historySummary });
+        });
+        // 舊制資料：仍依原 confirmHistory 日期唯讀呈現，不補 eventId、不回寫。
+        const historyDays = {};
+        (dataForHistory && Array.isArray(dataForHistory.confirmHistory) ? dataForHistory.confirmHistory : []).forEach((h) => {
+          if (!h || !h.at || h.eventId) return;
+          const day = String(h.at).trim().split(" ")[0].split("T")[0].replace(/\//g, "-");
+          if (!day || !day.startsWith(`${ym}-`)) return;
+          if (!historyDays[day] || String(h.at) > historyDays[day]) historyDays[day] = String(h.at);
+        });
+        const days = Object.keys(historyDays).sort();
+        days.forEach((historyDate) => {
+          idx[zoneId][y][m].push({ cellId, ym, historyDate, latest: historyDays[historyDate], status: "done", historySummary });
+        });
+        // 尚未完成的本輪指定仍需顯示，但不得與同日已完成紀錄重複建立卡片。
+        const currentDay = latest ? String(latest).trim().split(" ")[0].split("T")[0].replace(/\//g, "-") : "";
+        if ((status === "assigned" || status === "partial") && (!currentDay || !historyDays[currentDay])) {
+          idx[zoneId][y][m].push({ cellId, ym, historyDate: currentDay || null, latest, status, historySummary });
+        } else if (days.length === 0) {
+          idx[zoneId][y][m].push({ cellId, ym, historyDate: currentDay || null, latest, status, historySummary });
+        }
       }
     } catch (e) { console.error(e); }
     Object.values(idx).forEach((byYear) => {
@@ -7325,7 +7477,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
 
   // 指令3：從報表資料夾點進去，一律唯讀（強制 role="user"），不論實際身分；固定讀取該筆記錄所屬的月份
   if (openCell) {
-    return React.createElement(CellWorkTable, { zone: openCell.zone, cellId: openCell.cellId, ym: openCell.ym, workDate: (initialWorkDate && initialWorkDate.slice(0,7) === openCell.ym ? initialWorkDate : null), role: "user", onClose: () => setOpenCell(null), loggedInId: loggedInId,} );
+    return React.createElement(CellWorkTable, { zone: openCell.zone, cellId: openCell.cellId, ym: openCell.ym, workDate: (initialWorkDate && initialWorkDate.slice(0,7) === openCell.ym ? initialWorkDate : null), role: "user", onClose: () => setOpenCell(null), loggedInId: loggedInId, showOriginalHistory: true, historyDate: openCell.historyDate || null, historyEventId: openCell.historyEventId || null,} );
   }
 
   const records = (_optionalChain([index, 'access', _259 => _259[zoneSel], 'optionalAccess', _260 => _260[yearSel], 'optionalAccess', _261 => _261[monthSel]])) || [];
@@ -7443,7 +7595,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
               const borderColor = exportMode && checked ? C.tableColor : statusColor;
               return (
                 React.createElement('div', {
-                  key: rec.cellId,
+                  key: `${rec.cellId}:${rec.historyEventId || rec.historyDate || rec.ym}`,
                   className: "flex items-center justify-between p-3.5 rounded-xl"    ,
                   style: { background: exportMode && checked ? `${C.tableColor}14` : C.paper, border: `1.5px solid ${borderColor}` },}
 
@@ -7457,7 +7609,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
                     )
                   )
                   , React.createElement('button', {
-                    onClick: () => (exportMode ? toggleExportSelect(rec.cellId) : setOpenCell({ zone: zoneObj(zoneSel), cellId: rec.cellId, ym: rec.ym })),
+                    onClick: () => (exportMode ? toggleExportSelect(rec.cellId) : setOpenCell({ zone: zoneObj(zoneSel), cellId: rec.cellId, ym: rec.ym, historyDate: rec.historyDate || null, historyEventId: rec.historyEventId || null })),
                     className: "flex-1 text-left" ,}
 
                     , React.createElement('div', { className: "flex items-center gap-1.5"  ,}
@@ -7987,20 +8139,6 @@ function LoginSplash({ onLogin }) {
   const completeLogin = (remember) => {
     if (!pendingLogin) return;
     const { role, personId } = pendingLogin;
-    // Android Chrome 必須在使用者點擊事件內先啟動語音，否則稍後的未讀留言播報可能被封鎖。
-    if ("speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const loginVoice = new SpeechSynthesisUtterance("登入成功。指定工作請按溫室，確認工作請按功能表四。");
-        loginVoice.lang = "zh-TW";
-        loginVoice.rate = 0.92;
-        loginVoice.volume = 0.9;
-        const voices = window.speechSynthesis.getVoices();
-        const taiwanVoice = voices.find((v) => /zh[-_]TW/i.test(v.lang || ""));
-        if (taiwanVoice) loginVoice.voice = taiwanVoice;
-        window.speechSynthesis.speak(loginVoice);
-      } catch (e) { console.warn("登入語音不可用", e); }
-    }
     setFadingOut(true);
     setTimeout(() => onLogin(role, personId, remember), 480);
   };
