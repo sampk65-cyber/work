@@ -406,7 +406,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = 'V5.005';
+const APP_VERSION = 'V5.006';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -3732,7 +3732,7 @@ function CellWorkTable({ zone, cellId, role, onClose, ym, workDate, loggedInId, 
   const confirmAssignmentSave = () => {
     // V5.003 前向事件制：每次「新增指定」建立唯一 eventId；舊歷史只讀不改。
     const freezeAssignments = (base, ids) => {
-      // V5.005：事件邊界沿用原工作範圍。
+      // V5.006：事件邊界沿用原工作範圍。
       // 1–5 同一分區一次新增指派共用一個 cell eventId；6–8 同一溫室一次新增指派共用一個 zone eventId。
       // 不改舊 confirmHistory / assignmentHistory，只對本次 pending 指派建立新的事件。
       const next = { ...base, timestamps: { ...(base.timestamps || {}) }, assignmentHistory: [...(base.assignmentHistory || [])] };
@@ -7279,7 +7279,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
     setPrintLoading(false);
   };
 
-  const scan = async () => {
+  const scan = async (focusZone = null, focusYear = null, focusMonth = null) => {
     setLoading(true);
     const idx = {};
     const pending = {};
@@ -7288,11 +7288,16 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
       // 功能表4只讀掃描：直接命中既有 worklog 文件鍵，不依賴文件內 key 欄位。
       // 只讀取平面圖既有格位 × 既有年份月份；不修改導航、指定、儲存或回報。
       const validKeys = [];
-      for (const z of ZONES) {
+      // C61/V5.006：功能4依已選定層級縮小掃描範圍。
+      // 未定位時維持原索引能力；選定分區/年份/月後，只查該定位路徑，不再掃其他分區或月份。
+      const scanZones = focusZone ? ZONES.filter((z) => z.id === focusZone) : ZONES;
+      const scanYears = focusYear ? [Number(focusYear)] : FOLDER_YEARS;
+      const scanMonths = focusMonth ? [Number(focusMonth)] : FOLDER_MONTHS;
+      for (const z of scanZones) {
         const cells = (FLOOR_SHAPES[z.id] && FLOOR_SHAPES[z.id].cells) || [];
         for (const cell of cells) {
-          for (const y of FOLDER_YEARS) {
-            for (let m = 1; m <= 12; m++) {
+          for (const y of scanYears) {
+            for (const m of scanMonths) {
               validKeys.push(`worklog:${z.id}:${cell.id}:${y}-${String(m).padStart(2, "0")}`);
             }
           }
@@ -7424,8 +7429,16 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
         } catch (e31) {}
       });
     } catch (e32) {}
-    setIndex(idx);
-    setPendingByZone(pending);
+    setIndex((prev) => {
+      if (!focusZone) return idx;
+      const next = { ...prev, [focusZone]: { ...(prev[focusZone] || {}) } };
+      if (!focusYear) { next[focusZone] = idx[focusZone] || {}; return next; }
+      next[focusZone][focusYear] = { ...((prev[focusZone] || {})[focusYear] || {}) };
+      if (!focusMonth) { next[focusZone][focusYear] = (idx[focusZone] || {})[focusYear] || {}; return next; }
+      next[focusZone][focusYear][focusMonth] = (((idx[focusZone] || {})[focusYear] || {})[focusMonth]) || [];
+      return next;
+    });
+    setPendingByZone((prev) => focusZone ? { ...prev, [focusZone]: pending[focusZone] || 0 } : pending);
     setLoading(false);
   };
 
@@ -7538,7 +7551,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
             return (
               React.createElement('button', {
                 key: r.id,
-                onClick: () => setZoneSel(r.id),
+                onClick: () => { setZoneSel(r.id); scan(r.id, null, null); },
                 className: "rounded-xl p-4 flex flex-col gap-1 text-left relative"      ,
                 style: { background: C.paper, border: pendingCount > 0 ? `1.5px solid ${C.alert}` : `1px solid ${C.line}` },}
 
@@ -7561,7 +7574,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
             return (
               React.createElement('button', {
                 key: y,
-                onClick: () => setYearSel(y),
+                onClick: () => { setYearSel(y); scan(zoneSel, y, null); },
                 className: "rounded-xl p-4 flex flex-col items-center gap-1"     ,
                 style: { background: count ? `${C.tableColor}14` : C.paper, border: `1px solid ${count ? C.tableColor : C.line}` },}
 
@@ -7579,7 +7592,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
             return (
               React.createElement('button', {
                 key: m,
-                onClick: () => setMonthSel(m),
+                onClick: () => { setMonthSel(m); scan(zoneSel, yearSel, m); },
                 className: "rounded-xl p-3 flex flex-col items-center gap-1"     ,
                 style: { background: count ? `${C.tableColor}14` : C.paper, border: `1px solid ${count ? C.tableColor : C.line}` },}
 
@@ -7640,7 +7653,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
                     , React.createElement('div', { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 14, color: C.ink },}, rec.cellId)
                     , React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "IBM Plex Mono" },}, rec.latest)
                   )
-                  , !exportMode && (role === "designer" || role === "manager" || role === "founder") && (
+                  , !exportMode && !rec.historyEventId && (role === "designer" || role === "manager" || role === "founder") && (
                     React.createElement('button', {
                       onClick: () => setDeleteTarget({ zoneId: zoneSel, cellId: rec.cellId, ym: rec.ym, step: 1 }),
                       className: "flex items-center justify-center rounded-lg flex-shrink-0 ml-2"     ,
