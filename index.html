@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>工作版 V5.019・藍帶無花果</title>
+<title>工作版 V5.021・藍帶無花果</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -717,7 +717,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = '工作版 V5.019';
+const APP_VERSION = '工作版 V5.021';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -1387,7 +1387,7 @@ function BackupPanel({ onClose }) {
   );
 }
 
-function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenEnvironment, onOpenAttendance, onBossTable, onIpadReport, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
+function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpenPhotos, onOpenTrees, onOpenPersonnel, onOpenPermissions, onOpenYield, onOpenEnvironment, onOpenAttendance, onBossTable, onIpadReport, onOpenNotices, pendingPermCount, role, loggedInId, onLogin, onLogout }) {
   const groups = [...new Set(ZONES.filter((z) => z.group).map((z) => z.group))];
   const [zoom, setZoom] = useState(1);
   const [showGlobalMenu, setShowGlobalMenu] = useState(false);
@@ -1598,7 +1598,8 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
           React.createElement('div', { className: "w-full max-w-md px-5 mb-3"   ,}
             , React.createElement('button', {
               type: "button",
-              onClick: speakUnreadMessages,
+              // W21：點通知直接進入留言版，並自動打開第一則給我的未讀留言
+              onClick: () => { if (onOpenNotices) onOpenNotices(); else speakUnreadMessages(); },
               className: "w-full rounded-xl p-3.5 flex items-start gap-2.5 text-left"      ,
               style: { background: `${C.alert}18`, border: `1.5px solid ${C.alert}` },}
 
@@ -1611,7 +1612,7 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
                   )
                   , React.createElement('div', { className: "mt-1", style: { fontWeight: 600, fontSize: 12.5, lineHeight: 1.55 },}, "指定工作請點選溫室，進入功能表4確認工作。"
                   )
-                  , React.createElement('div', { className: "mt-1", style: { fontWeight: 500, fontSize: 11, opacity: .75 },}, "點此可重播語音"
+                  , React.createElement('div', { className: "mt-1", style: { fontWeight: 500, fontSize: 11, opacity: .75 },}, "點此直接進入留言版"
                   )
               )
             )
@@ -1735,6 +1736,17 @@ function MapLogin({ onEnter, onOpenReport, onOpenCalendar, onOpenFolders, onOpen
   );
 }
 
+// W20：浮動「回上一頁／主畫面」在手指放開(pointerup)的瞬間就換頁，
+// 但瀏覽器隨後還會在同一個位置補送一次 click；新頁面（主畫面地圖）已經顯示，
+// 這個 click 就打在按鈕底下的東西上——右下角剛好是溫室五，於是從任何頁面按回上一頁都可能被帶進溫室五。
+// 這裡在換頁前先攔下接下來 0.6 秒內的那一次 click，避免「穿透點擊」。
+function swallowNextClick() {
+  const stop = (ev) => { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); cleanup(); };
+  const cleanup = () => { document.removeEventListener("click", stop, true); clearTimeout(timer); };
+  document.addEventListener("click", stop, true);
+  const timer = setTimeout(cleanup, 600);
+}
+
 function BackIsland({ onBack }) {
   const [pos, setPos] = useState(null);
   const dragState = useRef({ dragging: false, moved: false, startX: 0, startY: 0, originX: 0, originY: 0 });
@@ -1766,7 +1778,7 @@ function BackIsland({ onBack }) {
     const s = dragState.current;
     s.dragging = false;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
-    if (!s.moved && onBack) onBack();
+    if (!s.moved && onBack) { swallowNextClick(); onBack(); }
   };
 
   if (!onBack) return null;
@@ -1846,7 +1858,7 @@ function HomeIsland({ onHome }) {
     const s = dragState.current;
     s.dragging = false;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
-    if (!s.moved && onHome) onHome();
+    if (!s.moved && onHome) { swallowNextClick(); onHome(); }
   };
 
   if (!onHome) return null;
@@ -10886,7 +10898,7 @@ const FOLDER_YEARS = [2026, 2027];
 // 功能表4資訊框：設在所有資料夾上方，單一進行中通知（單槽，發新通知會覆蓋前一則並重設已讀狀態）
 // 儲存 key：zonenotice:{id}，每筆通知各自一個key，可同時存在多筆；用 window.storage.list 讀出全部並依時間新到舊排序
 // 規則：沒有進行中通知，或所有受文對象都已讀 → 綠色；已發出但還有人未讀 → 橘紅色
-function ZoneNoticeBoard({ role, loggedInId }) {
+function ZoneNoticeBoard({ role, loggedInId, autoOpenUnread = false }) {
   const editable = !!loggedInId; // V5.1+：所有已登入帳號均可發布通知
   const [notices, setNotices] = useState([]); // [{key, senderId, senderName, text, recipientIds, recipientNames, readBy, postedAt}]
   const [loading, setLoading] = useState(true);
@@ -10932,6 +10944,14 @@ function ZoneNoticeBoard({ role, loggedInId }) {
     setLoading(false);
   };
   useEffect(() => { setNotices([]); setSelectedKey(null); load(); }, [loggedInId]);
+  // W21：從首頁「您有N則新留言」進來時，載入完成後自動打開最新一則給我的未讀留言（只打開，不會自動標記已讀）。
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenUnread || autoOpenedRef.current || loading || !loggedInId) return;
+    autoOpenedRef.current = true;
+    const mine = notices.filter((n) => (n.recipientIds || []).includes(loggedInId) && !(n.readBy || []).includes(loggedInId));
+    if (mine.length) openDetail(mine[0].key);
+  }, [autoOpenUnread, loading, notices, loggedInId]);
 
   const selected = notices.find((n) => n.key === selectedKey) || null;
   const isNoticeUnread = (n) => !!(n && !isFullyReadNotice(n));
@@ -11302,7 +11322,7 @@ function ZoneNoticeBoard({ role, loggedInId }) {
   );
 }
 
-function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initialEvent = null, initialWorkDate = null }) {
+function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initialEvent = null, initialWorkDate = null, focusNotice = 0 }) {
   // C95：從「指定→是否回報→是」進來時，直接打開該筆事件；年／月也先設好，
   // 關閉工作表後停在該月份清單，再按回上一頁逐層退回。
   const ev = initialEvent && initialEvent.cellId && /^\d{4}-\d{2}$/.test(String(initialEvent.ym || "")) ? initialEvent : null;
@@ -11702,7 +11722,7 @@ function ZoneWorkFolders({ onBack, role, loggedInId, initialZoneId = null, initi
         )
       )
 
-      , !zoneSel && React.createElement(ZoneNoticeBoard, { role: role, loggedInId: loggedInId,} )
+      , !zoneSel && React.createElement(ZoneNoticeBoard, { role: role, loggedInId: loggedInId, autoOpenUnread: !!focusNotice,} )
 
       , loading ? (
         React.createElement('div', { className: "text-center py-10 text-sm"  , style: { color: C.inkSoft, fontFamily: "Inter" },}, "掃描中…")
@@ -12683,6 +12703,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   // 導覽修正：全域功能改為單一路由，避免多個布林開關殘留而疊出錯誤頁面。
   const [globalView, setGlobalView] = useState(null);
   const [reportShortcutZone, setReportShortcutZone] = useState(null);
+  const [noticeFocus, setNoticeFocus] = useState(0); // W21：從首頁通知進入留言版
   const [reportShortcutEvent, setReportShortcutEvent] = useState(null); // C95：指定後直接回報的事件
   const [reportShortcutWorkDate, setReportShortcutWorkDate] = useState(null); // 工作版：A01 回溯日期
   const [pendingPermCount, setPendingPermCount] = useState(0);
@@ -12909,6 +12930,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
   };
   const backToMap = () => {
     setReportShortcutZone(null);
+    setNoticeFocus(0);
     setReportShortcutEvent(null);
     setReportShortcutWorkDate(null);
     closeEmbedLayer("yieldEmbedLayer", "yieldEmbedFrame");
@@ -12917,6 +12939,8 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     setZone(null);
     setView("menu");
     setGlobalView(null);
+    // W20：回主畫面一律從頂端開始，不沿用上一頁的捲動位置（避免停在溫室清單上被誤觸）。
+    try { window.scrollTo(0, 0); } catch (_) {}
   };
   const backToMenu = () => { setGlobalView(null); setView("menu"); };
   const backToFunction = () => { setGlobalView(null); setView("function"); };
@@ -12999,6 +13023,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
           onOpenAttendance: () => prepareAttendanceOnOpen(() => openGlobalView("attendance")),
           onBossTable: (key) => openGlobalView(key === "materials" ? "report1" : "report3"),
           onIpadReport: (z) => openFolders(z.id),
+          onOpenNotices: () => { setNoticeFocus(Date.now()); openFolders(null); },
           pendingPermCount: pendingPermCount,
           role: role,
           loggedInId: loggedInId,
@@ -13010,7 +13035,7 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
       , globalView === "report" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, calendarRole: roleForMenu(4),} )
       , globalView === "report1" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, calendarRole: roleForMenu(4), shortcutKey:"materials",} )
       , globalView === "report3" && React.createElement(ReportsHub, { onBack: backToMap, loggedInId: loggedInId, calendarRole: roleForMenu(4), shortcutKey:"zoneMaterials",} )
-      , globalView === "folders" && React.createElement(ZoneWorkFolders, { onBack: () => { setReportShortcutZone(null); setReportShortcutEvent(null); backToMap(); }, role: roleForMenu(3), loggedInId: loggedInId, initialZoneId: reportShortcutZone, initialEvent: reportShortcutEvent, initialWorkDate: reportShortcutWorkDate, key: reportShortcutEvent ? `ev:${reportShortcutEvent.historyEventId || reportShortcutEvent.historyDate}` : "folders",} )
+      , globalView === "folders" && React.createElement(ZoneWorkFolders, { onBack: () => { setReportShortcutZone(null); setReportShortcutEvent(null); backToMap(); }, role: roleForMenu(3), loggedInId: loggedInId, initialZoneId: reportShortcutZone, focusNotice: noticeFocus, initialEvent: reportShortcutEvent, initialWorkDate: reportShortcutWorkDate, key: reportShortcutEvent ? `ev:${reportShortcutEvent.historyEventId || reportShortcutEvent.historyDate}` : noticeFocus ? `notice:${noticeFocus}` : "folders",} )
       , globalView === "photos" && React.createElement(FeatureZonePortal, { type: "photos", onBack: backToMap, role: photoRole(), loggedInId: loggedInId,} )
       , globalView === "trees" && React.createElement(FeatureZonePortal, { type: "trees", onBack: backToMap, role: treeRole(), loggedInId: loggedInId,} )
       , globalView === "personnel" && React.createElement(PersonnelMenu, { onBack: backToMap, role: roleForMenu(0), onChanged: refreshPendingCount,} )
