@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>工作版 V5.021・藍帶無花果</title>
+<title>工作版 V5.1023・藍帶無花果</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -717,7 +717,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = '工作版 V5.021';
+const APP_VERSION = '工作版 V5.1023';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -10990,10 +10990,13 @@ function ZoneNoticeBoard({ role, loggedInId, autoOpenUnread = false }) {
     }
   };
 
+  // W23：點開即讀取——收文者打開留言時自動標記自己已讀，不需再點名字、按按鈕。
   const openDetail = (key) => {
     setSelectedKey(key);
     setReaderPick(null);
     setModal("detail");
+    const n = notices.find((x) => x.key === key);
+    if (n && loggedInId && (n.recipientIds || []).includes(loggedInId) && !(n.readBy || []).includes(loggedInId)) markReadFor(n);
   };
 
   const toggleRecipient = (id) => {
@@ -11027,10 +11030,11 @@ function ZoneNoticeBoard({ role, loggedInId, autoOpenUnread = false }) {
     setSending(false);
   };
 
-  const markRead = async () => {
-    if (!loggedInId || !selected || !(selected.recipientIds || []).includes(loggedInId)) return;
+  const markReadFor = async (target) => {
+    if (!loggedInId || !target || !(target.recipientIds || []).includes(loggedInId)) return;
     const actualReaderId = loggedInId;
-    if ((selected.readBy || []).includes(actualReaderId)) { setModal(null); return; }
+    if ((target.readBy || []).includes(actualReaderId)) return;
+    const selected = target;
     setMarking(true);
     const stamp = nowStamp();
     const nextReadBy = [...(selected.readBy || []), actualReaderId];
@@ -11045,11 +11049,25 @@ function ZoneNoticeBoard({ role, loggedInId, autoOpenUnread = false }) {
     };
     const { key, ...payload } = updated;
     try {
+      // 只在本機先更新，不重新載入整個清單，避免打開中的視窗被關掉
       const result = await window.storage.set(selected.key, JSON.stringify(payload));
-      if (result) await load();
+      if (result) setNotices((prev) => prev.map((x) => x.key === selected.key ? updated : x));
     } catch (e) { console.error(e); }
     setMarking(false);
-    setModal(null);
+  };
+  // W23：發文者可以刪除自己的留言
+  const [deleting, setDeleting] = useState(false);
+  const deleteNotice = async () => {
+    if (!selected || !loggedInId || selected.senderId !== loggedInId || deleting) return;
+    if (!confirm("確定刪除這則留言？刪除後收文者與表四都不會再看到。")) return;
+    setDeleting(true);
+    try {
+      await window.storage.delete(selected.key);
+      setModal(null);
+      setSelectedKey(null);
+      await load();
+    } catch (e) { console.error(e); alert("刪除失敗：" + ((e && e.message) || e)); }
+    setDeleting(false);
   };
 
   // 發文者本人隨時可以修改內容（打錯字的情況），不用整篇刪掉重發
@@ -11060,7 +11078,7 @@ function ZoneNoticeBoard({ role, loggedInId, autoOpenUnread = false }) {
     setModal("editText");
   };
   const saveEditedText = async () => {
-    if (!selected || !editText.trim()) return;
+    if (!selected || !editText.trim() || selected.senderId !== loggedInId) return; // 只有發文者可以修改
     setSavingEdit(true);
     const { key, ...payload } = selected;
     const updated = { ...payload, text: editText.trim(), editedAt: nowStamp() };
@@ -11251,6 +11269,10 @@ function ZoneNoticeBoard({ role, loggedInId, autoOpenUnread = false }) {
 
                     )
                   )
+                  , loggedInId && selected.senderId === loggedInId && (
+                    React.createElement('button', { onClick: deleteNotice, disabled: deleting, className: "px-3 py-1.5 rounded-lg text-xs w-fit"    , style: { background: `${C.alert}14`, color: C.alert, fontFamily: "Inter", fontWeight: 700 },}, deleting ? "刪除中…" : "刪除留言"
+                    )
+                  )
                 )
 
                 , React.createElement('div', { className: "text-xs mb-1.5" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "已讀狀況（"
@@ -11274,38 +11296,9 @@ function ZoneNoticeBoard({ role, loggedInId, autoOpenUnread = false }) {
                   })
                 )
 
-                , isNoticeUnread(selected) && (
-                  React.createElement(React.Fragment, null
-                    , React.createElement('div', { className: "text-xs mb-1.5" , style: { color: C.inkSoft, fontFamily: "Inter" },}, "4. 我是收件人（點選後標記已讀）" )
-                    , React.createElement('div', { className: "flex flex-wrap gap-1.5 mb-4"   ,}
-                      , selected.recipientIds.map((id) => {
-                        const already = (selected.readBy || []).includes(id);
-                        return (
-                          React.createElement('button', {
-                            key: id,
-                            onClick: () => setReaderPick(id),
-                            disabled: already,
-                            className: "px-2.5 py-1.5 rounded-lg text-xs"   ,
-                            style: {
-                              background: readerPick === id ? C.wine : already ? `${C.leaf}18` : C.cream,
-                              color: readerPick === id ? "white" : already ? C.leaf : C.ink,
-                              border: `1px solid ${readerPick === id ? C.wine : already ? C.leaf : C.line}`,
-                              fontFamily: "Inter", fontWeight: 600, opacity: already ? 0.7 : 1,
-                            },}
-
-                            , _optionalChain([selected, 'access', _225 => _225.recipientNames, 'optionalAccess', _226 => _226[id]]) || id, already ? "・已讀" : ""
-                          )
-                        );
-                      })
-                    )
-                    , React.createElement('button', {
-                      onClick: markRead,
-                      disabled: !readerPick || marking,
-                      className: "w-full py-3 rounded-xl text-sm"   ,
-                      style: { background: C.leaf, color: "white", fontFamily: "Inter", fontWeight: 700, opacity: !readerPick ? 0.5 : 1 },}
-
-                      , marking ? "標記中…" : "標記已讀（個人已讀後恢復綠色，全員已讀後整體恢復綠色）"
-                    )
+                , loggedInId && (selected.recipientIds || []).includes(loggedInId) && (
+                  React.createElement('div', { className: "w-full py-2.5 rounded-xl text-sm text-center mb-1", style: { background: `${C.leaf}18`, color: C.leaf, fontFamily: "Inter", fontWeight: 700 },}
+                    , marking ? "標記已讀中…" : "✓ 你已讀取（打開即自動標記）"
                   )
                 )
                 , editable && (
