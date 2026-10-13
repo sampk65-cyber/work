@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>工作版 V5.1034・藍帶無花果</title>
+<title>工作版 V5.1035・藍帶無花果</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -717,7 +717,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = '工作版 V5.1034';
+const APP_VERSION = '工作版 V5.1035';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -4511,6 +4511,10 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
       const yk = String(recYear);
       const days = d.days === "" ? null : +d.days;
       const usedBefore = d.usedBefore === "" ? 0 : +d.usedBefore;
+      const autoDays = annualGrantsInYear(d.hireDate, recYear).reduce((a, g) => a + g.days, 0);
+      const nMon = serviceMonthsBetween(d.hireDate, dateKey);
+      const ok = window.confirm(`請確認特休設定：\n到職日 ${d.hireDate}（年資 ${Math.floor(nMon / 12)}年${nMon % 12}個月）\n${yk}年依年資應有 ${autoDays} 天` + (days != null ? `\n手動輸入 ${days} 天${days !== autoDays ? `（與年資計算不同！）` : ""}` : "\n採用年資自動計算") + "\n\n確定＝儲存");
+      if (!ok) { setBusy(false); return; }
       if (days == null && !usedBefore) delete overrides[yk];
       else overrides[yk] = { days, usedBefore, by: loggedInId, at: Date.now() };
       const log = [...(prev.log || []), { at: Date.now(), by: loggedInId, hireDate: d.hireDate, year: yk, days, usedBefore }].slice(-50);
@@ -4539,7 +4543,7 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
       style: { background: "#FFF8E6", border: "1px solid #D4A01760", color: C.ink, fontFamily: "Inter", fontWeight: 600 },
     },
       s.configured
-        ? `🏖 ${year}年特休：可用 ${s.remain} 天（已生效 ${s.effective}／已休 ${s.used}${s.pending.length ? `／${s.pending.map((g) => `${g.date.slice(5)} 再加${g.days}天`).join("、")}` : ""}）`
+        ? `🏖 ${year}年特休${s.manual ? "（主管手動設定）" : "（依年資）"}：可用 ${s.remain} 天（已生效 ${s.effective}／已休 ${s.used}${s.pending.length ? `／${s.pending.map((g) => `${g.date.slice(5)} 再加${g.days}天`).join("、")}` : ""}）`
         : "🏖 特休額度尚未設定（請主管於主管模式設定）"
     );
   };
@@ -4602,6 +4606,15 @@ function AttendanceMenu({ onBack, role, loggedInId }) {
           React.createElement('div', null, lbl("系統外已休天數"),
             React.createElement('input', { type: "number", min: 0, step: 0.5, value: annualEdit.usedBefore, onChange: (e) => setAnnualEdit((c) => ({ ...c, usedBefore: e.target.value })), placeholder: "0", className: "px-2 py-1.5 rounded-lg text-sm", style: inputStyle }))
         ),
+        annualEdit.hireDate && (() => {
+          const g = annualGrantsInYear(annualEdit.hireDate, y);
+          const auto = g.reduce((a, x) => a + x.days, 0);
+          return React.createElement('div', { className: "px-2 py-1.5 rounded-lg text-xs", style: { background: C.paper, border: `1px solid ${C.line}`, color: C.ink, fontFamily: "Inter", lineHeight: 1.6, fontWeight: 600 } },
+            "預覽：到職日 ", annualEdit.hireDate, "・今天年資 ", serviceText(annualEdit.hireDate, dateKey),
+            "・", y, "年依年資應有 ", React.createElement('b', { style: { color: C.wine } }, auto, " 天"),
+            g.length ? `（${g.map((x) => `${x.date.slice(5)} ${x.label} ${x.days}天`).join("、")}）` : "（今年未達滿半年）"
+          );
+        })(),
         React.createElement('div', { className: "text-xs", style: { color: C.inkSoft, fontFamily: "Inter", lineHeight: 1.6 } },
           "輸入年資會自動換算到職日（也可直接改到職日）。手動天數只套用在 ", y, " 年；其他年度依年資自動產生，每年 1/1 重新起算。"
         ),
