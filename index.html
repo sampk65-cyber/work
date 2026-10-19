@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>工作版 V5.1038・藍帶無花果</title>
+<title>工作版 V5.1039・藍帶無花果</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -717,7 +717,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = '工作版 V5.1038';
+const APP_VERSION = '工作版 V5.1039';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -14396,6 +14396,8 @@ function AppMain({ initialRole, initialId, onLogoutToSplash }) {
     } catch (e) { console.warn("語音播報不可用", e); }
   };
   const enterZone = (z) => {
+    // C136：溫室平面圖依功能表4「分區工項提示內容」閱覽權限；沒有權限直接不反應（無提示、無語音、畫面不變）
+    if (!menuAccess(3).view) return;
     cancelZoneEntry();
     speakZoneEntry(z);
     setGlobalView(null);
