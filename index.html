@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>工作版 V5.1037・藍帶無花果</title>
+<title>工作版 V5.1038・藍帶無花果</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -717,7 +717,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = '工作版 V5.1037';
+const APP_VERSION = '工作版 V5.1038';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const WORK_ITEMS = [
@@ -1183,13 +1183,15 @@ async function runWithLimit(items, limit, worker) {
 let MENU_VIEW_CHECK = null;
 const MENU_KEY_INDEX = { personnel: 0, permissions: 1, yield: 2, workfolders: 3, calendar: 4, photos: 5, materials: 6, trees: 7, environment: 8, attendance: 9 };
 function ModuleGrid({ onPick, pendingPermCount = 0 }) {
-  const active = STUB_MODULES.filter((m) => m.key);
-  const inactive = STUB_MODULES.filter((m) => !m.key);
+  // C135：沒有閱覽權限的功能表不佔格位，與未開放項目一起收進右下角「未開發功能」
+  const canSee = (m) => !!m.key && (!MENU_VIEW_CHECK || MENU_VIEW_CHECK(m.key));
+  const active = STUB_MODULES.filter(canSee);
+  const inactive = STUB_MODULES.filter((m) => !canSee(m));
   return (
     React.createElement('div', { className: "grid grid-cols-2 gap-3"  ,}
       , active.map((m, i) => {
         const Icon = m.icon;
-        const allowed = !MENU_VIEW_CHECK || MENU_VIEW_CHECK(m.key);
+        const allowed = true;
         if (!allowed) {
           return React.createElement('button', {
             key: m.key, disabled: true,
