@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>工作版 V5.1042・藍帶無花果</title>
+<title>工作版 V5.1043・藍帶無花果</title>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="藍帶無花果" />
@@ -718,7 +718,7 @@ const C = {
   tiffanyLight: "#B8ECE5",
   tiffanyText: "#2E8577",
 };
-const APP_VERSION = '工作版 V5.1042';
+const APP_VERSION = '工作版 V5.1043';
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 
 const OTHER_MATERIALS = ["黃豆", "水果", "硝酸鉀", "磷酸一鉀", "硫酸鉀", "鈣鎂粉", "微量元素", "硝酸鈣"];
@@ -2383,7 +2383,7 @@ function ZoneMaterialListManager({ itemId, onClose, onChanged }) {
       await window.storage.set(ZONE_LIST_KEYS[itemId], JSON.stringify({ active: a, archived: r }), true);
       applyZoneMaterialList(itemId, { active: a, archived: r });
       setActive(a); setArchived(r); onChanged();
-    } catch (e) { setErr("儲存失敗，請稍後再試。"); }
+    } catch (e) { setErr("儲存失敗：" + ((e && (e.code || e.message)) || "未知錯誤") + "（若為 permission-denied，需在 Firestore 規則開放 zoneMicrobeList、zoneFoliarList 兩個文件）"); }
     setBusy(false);
   };
   const add = () => {
@@ -2395,7 +2395,7 @@ function ZoneMaterialListManager({ itemId, onClose, onChanged }) {
   const row = (n, isActive) => React.createElement('div', { key: n, className: "flex items-center justify-between p-2.5 rounded-lg", style: { background: C.cream, opacity: isActive ? 1 : 0.7 } }
     , React.createElement('span', { className: "text-sm", style: { fontFamily: "Inter", color: C.ink } }, n)
     , React.createElement('button', { disabled: busy, onClick: () => isActive ? save(active.filter((x) => x !== n), [...archived, n]) : save([...active, n], archived.filter((x) => x !== n)), className: "text-xs px-2 py-1 rounded", style: { background: isActive ? `${C.alert}18` : C.leaf, color: isActive ? C.alert : "white", fontFamily: "Inter", fontWeight: 700 } }, isActive ? "停用" : "啟用"));
-  return React.createElement('div', { className: "fixed inset-0 z-50 flex items-end", style: { background: "rgba(43,33,25,0.5)" }, onClick: onClose }
+  return ReactDOM.createPortal(React.createElement('div', { className: "fixed inset-0 flex items-end", style: { background: "rgba(43,33,25,0.5)", zIndex: 99999 }, onClick: (e) => { e.stopPropagation(); onClose(); } }
     , React.createElement('div', { className: "w-full rounded-t-2xl p-5", style: { background: C.paper, maxHeight: "85vh", overflowY: "auto" }, onClick: (e) => e.stopPropagation() }
       , React.createElement('div', { className: "flex items-center justify-between mb-2" }
         , React.createElement('span', { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 16, color: C.ink } }, "管理" + title + "清單")
@@ -2410,7 +2410,7 @@ function ZoneMaterialListManager({ itemId, onClose, onChanged }) {
       , err && React.createElement('div', { className: "text-xs mb-2", style: { color: C.alert, fontFamily: "Inter" } }, err)
       , archived.length > 0 && React.createElement('div', { style: { borderTop: `1px solid ${C.line}`, paddingTop: 12 } }
         , React.createElement('div', { className: "text-xs mb-2", style: { color: C.inkSoft, fontFamily: "Inter", fontWeight: 700 } }, "已停用（舊紀錄與統計仍保留）")
-        , React.createElement('div', { className: "flex flex-col gap-2" }, archived.map((n) => row(n, false))))));
+        , React.createElement('div', { className: "flex flex-col gap-2" }, archived.map((n) => row(n, false)))))), document.body);
 }
 function FertilizerManager({ fertilizerList, onClose, onChanged }) {
   const [list, setList] = useState(fertilizerList);
